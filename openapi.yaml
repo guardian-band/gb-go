@@ -20,16 +20,16 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/RegisterRequest'
+              $ref: '#/components/schemas/AuthRequest'
       responses:
-        '200':
-          description: Registration response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
+        '201':
+          description: User successfully registered
         '400':
           description: Invalid request
+        '409':
+          description: User already exists
+        '500':
+          description: Internal server error
 
   /api/login:
     post:
@@ -42,53 +42,28 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LoginRequest'
+              $ref: '#/components/schemas/AuthRequest'
       responses:
         '200':
-          description: Login response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/MessageResponse'
+          description: User successfully logged in
+        '400':
+          description: Invalid request
         '401':
           description: Invalid credentials
 
 components:
   schemas:
-    RegisterRequest:
+    AuthRequest:
       type: object
       required:
-        - email
+        - username
         - password
       properties:
-        email:
+        username:
           type: string
-          format: email
-          example: user@example.com
+          example: ahmet
         password:
           type: string
           format: password
-          minLength: 8
-          example: secure-password
+          example: 123456
 
-    LoginRequest:
-      type: object
-      required:
-        - email
-        - password
-      properties:
-        email:
-          type: string
-          format: email
-          example: user@example.com
-        password:
-          type: string
-          format: password
-          example: secure-password
-
-    MessageResponse:
-      type: object
-      properties:
-        message:
-          type: string
-          example: Request received
