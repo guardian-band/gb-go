@@ -1,0 +1,28 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      DB_HOST: opengauss
+      DB_PORT: 5432
+      DB_USER: gaussdb
+      DB_PASSWORD: ChangeMe123
+      DB_NAME: opengauss
+      DB_SSLMODE: disable
+    depends_on:
+      - opengauss
+
+  opengauss:
+    image: opengauss/opengauss:latest
+    environment:
+      GS_PASSWORD: ChangeMe123
+    ports:
+      - "5432:5432"
+    volumes:
+      - opengauss-data:/var/lib/opengauss/data
+
+volumes:
+  opengauss-data:

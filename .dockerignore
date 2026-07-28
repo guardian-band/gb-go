@@ -1,0 +1,12 @@
+.git
+.gitignore
+.DS_Store
+
+# Local build and test artifacts
+gb-go
+*.test
+coverage.out
+
+# Editor and dependency caches
+.vscode
+.idea

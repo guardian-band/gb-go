@@ -9,6 +9,5 @@ import (
 
 func main() {
 	server := api.New()
-
 	log.Fatal(http.ListenAndServe(":3000", server.Router()))
 }
