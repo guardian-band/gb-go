@@ -55,6 +55,25 @@ paths:
         '401':
           description: Invalid credentials
 
+  /api/protected:
+    get:
+      summary: Sample protected endpoint requiring JWT
+      operationId: getProtected
+      tags:
+        - Protected
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Access granted
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: Access granted to protected endpoint!
+        '401':
+          description: Missing, invalid, or expired JWT token
+
 components:
   securitySchemes:
     BearerAuth:
