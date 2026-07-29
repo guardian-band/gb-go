@@ -29,6 +29,14 @@ func (a *API) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/register", a.Register)
 		r.Post("/login", a.Login)
+
+		// Protected routes requiring a valid JWT token
+		r.Group(func(r chi.Router) {
+			r.Use(AuthenticateMiddleware)
+			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte("Access granted to protected endpoint!"))
+			})
+		})
 	})
 
 	return r

@@ -46,12 +46,22 @@ paths:
       responses:
         '200':
           description: User successfully logged in
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
         '400':
           description: Invalid request
         '401':
           description: Invalid credentials
 
 components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
   schemas:
     AuthRequest:
       type: object
@@ -66,4 +76,12 @@ components:
           type: string
           format: password
           example: 123456
+
+    AuthResponse:
+      type: object
+      properties:
+        token:
+          type: string
+          example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
 
