@@ -74,6 +74,41 @@ paths:
         '401':
           description: Missing, invalid, or expired JWT token
 
+  /api/upload:
+    post:
+      summary: Upload a file to S3 / MinIO storage
+      operationId: uploadFile
+      tags:
+        - Storage
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - file
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: File to upload
+      responses:
+        '201':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResponse'
+        '400':
+          description: Invalid request or missing file
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '500':
+          description: Internal server error or storage failure
+
 components:
   securitySchemes:
     BearerAuth:
@@ -102,5 +137,16 @@ components:
         token:
           type: string
           example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+
+    UploadResponse:
+      type: object
+      properties:
+        file_key:
+          type: string
+          example: 4a2b9f80-1234-5678-9abc-def012345678.png
+        message:
+          type: string
+          example: file uploaded successfully
+
 
 
