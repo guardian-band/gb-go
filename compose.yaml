@@ -9,26 +9,62 @@ services:
       DB_HOST: opengauss
       DB_PORT: 5432
       DB_USER: gaussdb
-      DB_PASSWORD: ChangeMe123
-      DB_NAME: opengauss
+      DB_PASSWORD: ${DB_PASSWORD:-ChangeMe@123}
+      DB_NAME: guardianband
       DB_SSLMODE: disable
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ChangeMeRedis123}
+      REDIS_DB: 0
       S3_ENDPOINT: minio:9000
       S3_ACCESS_KEY: minioadmin
       S3_SECRET_KEY: minioadmin
       S3_BUCKET: guardianband-files
       S3_USE_SSL: "false"
     depends_on:
-      - opengauss
-      - minio
+      opengauss:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_started
 
   opengauss:
-    image: opengauss/opengauss:latest
+    image: opengauss/opengauss-server:latest
+    privileged: true
     environment:
-      GS_PASSWORD: ChangeMe123
+      GS_PASSWORD: ${DB_PASSWORD:-ChangeMe@123}
+      GS_DB: guardianband
     ports:
       - "5432:5432"
     volumes:
-      - opengauss-data:/var/lib/opengauss/data
+      - opengauss-data:/var/lib/opengauss
+    healthcheck:
+      test: ["CMD-SHELL", "LD_LIBRARY_PATH=/usr/local/opengauss/lib /usr/local/opengauss/bin/gsql -d guardianband -U gaussdb -W \"$$GS_PASSWORD\" -c 'SELECT 1' >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+  redis:
+    image: redis:7.4-alpine
+    command:
+      - redis-server
+      - /usr/local/etc/redis/redis.conf
+      - --requirepass
+      - ${REDIS_PASSWORD:-ChangeMeRedis123}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-ChangeMeRedis123}
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=$$REDIS_PASSWORD redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
 
   minio:
     image: minio/minio:latest
@@ -44,5 +80,5 @@ services:
 
 volumes:
   opengauss-data:
+  redis-data:
   minio-data:
-

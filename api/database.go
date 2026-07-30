@@ -1,12 +1,17 @@
 package api
 
 import (
+	"context"
 	"database/sql"
+	_ "embed"
 	"fmt"
 	"os"
 
 	_ "gitcode.com/opengauss/openGauss-connector-go-pq"
 )
+
+//go:embed schema.sql
+var databaseSchema string
 
 // createConnection creates a database handle using the application's database
 // environment variables. The returned handle is safe for concurrent use.
@@ -22,6 +27,18 @@ func createConnection() (*sql.DB, error) {
 	)
 
 	return sql.Open("opengauss", dsn)
+}
+
+func initializeDatabase(ctx context.Context, db *sql.DB) error {
+	if err := db.PingContext(ctx); err != nil {
+		return fmt.Errorf("ping database: %w", err)
+	}
+
+	if _, err := db.ExecContext(ctx, databaseSchema); err != nil {
+		return fmt.Errorf("initialize database schema: %w", err)
+	}
+
+	return nil
 }
 
 func getenv(key, fallback string) string {
