@@ -20,10 +20,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/AuthRequest'
+              $ref: '#/components/schemas/RegisterRequest'
       responses:
         '201':
           description: User successfully registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RegisterResponse'
         '400':
           description: Invalid request
         '409':
@@ -147,6 +151,33 @@ components:
         message:
           type: string
           example: file uploaded successfully
+
+    RegisterRequest:
+      type: object
+      required:
+        - phoneNumber
+        - password
+      properties:
+        phoneNumber:
+          type: string
+          description: E.164 biçimindeki telefon numarası
+          example: "+905551234567"
+        password:
+          type: string
+          format: password
+          minLength: 8
+          example: secure-password
+
+    RegisterResponse:
+      type: object
+      required:
+        - id
+        - phoneNumber
+      properties:
+        id:
+          type: string
+        phoneNumber:
+          type: string
 
 
 
