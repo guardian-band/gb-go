@@ -1,16 +1,8 @@
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
-    role VARCHAR(16) NOT NULL,
-    full_name VARCHAR(200) NOT NULL,
-    email VARCHAR(320) UNIQUE,
-    phone VARCHAR(32) UNIQUE,
+    phone_number VARCHAR(32) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
-    responder_verified_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT users_role_valid
-        CHECK (role IN ('patient', 'family', 'responder')),
-    CONSTRAINT users_contact_present
-        CHECK (email IS NOT NULL OR phone IS NOT NULL)
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS patient_profiles (
