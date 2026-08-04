@@ -81,6 +81,8 @@ func (a *API) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/register", a.Register)
 		r.Post("/login", a.Login)
+		r.Post("/vitals", a.VitalsPostHandler)
+		r.Get("/vitals/{userId}/latest", a.VitalsGetLatestHandler)
 
 		// Protected routes requiring a valid JWT token
 		r.Group(func(r chi.Router) {

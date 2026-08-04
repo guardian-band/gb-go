@@ -113,6 +113,52 @@ paths:
         '500':
           description: Internal server error or storage failure
 
+  /api/vitals:
+    post:
+      summary: Store a vital packet in Redis
+      operationId: storeVitals
+      tags:
+        - Vitals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VitalPacket'
+      responses:
+        '201':
+          description: Vitals successfully recorded
+        '400':
+          description: Invalid vital data range or invalid payload
+        '500':
+          description: Internal server error or storage failure
+
+  /api/vitals/{userId}/latest:
+    get:
+      summary: Retrieve the latest vitals record for a user
+      operationId: getLatestVitals
+      tags:
+        - Vitals
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Vitals successfully retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VitalPacket'
+        '400':
+          description: Invalid request
+        '404':
+          description: Vitals not found for this user
+        '500':
+          description: Internal server error or storage failure
+
 components:
   securitySchemes:
     BearerAuth:
@@ -178,6 +224,28 @@ components:
           type: string
         phoneNumber:
           type: string
+
+    VitalPacket:
+      type: object
+      required:
+        - userId
+        - heartRate
+        - bloodOxygen
+        - recordedAt
+      properties:
+        userId:
+          type: string
+        heartRate:
+          type: integer
+          description: Kalp atış hızı (bpm)
+          example: 72
+        bloodOxygen:
+          type: integer
+          description: Kandaki oksijen oranı (SpO₂ yüzdesi)
+          example: 98
+        recordedAt:
+          type: string
+          format: date-time
 
 
 
