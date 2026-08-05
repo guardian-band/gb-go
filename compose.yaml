@@ -20,6 +20,7 @@ services:
       S3_SECRET_KEY: minioadmin
       S3_BUCKET: guardianband-files
       S3_USE_SSL: "false"
+      JWT_SECRET: ${JWT_SECRET:-ChangeMeJWTSecret123}
     depends_on:
       opengauss:
         condition: service_healthy

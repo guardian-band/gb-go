@@ -1,8 +1,11 @@
 package api
 
 import (
+	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -12,15 +15,22 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-var jwtSecret = []byte("super-secret-key-guardianband")
+// getJWTSecret returns the JWT signing key from environment variables or a fallback secure key.
+func getJWTSecret() []byte {
+	secret := os.Getenv("JWT_SECRET")
+	if secret == "" {
+		return []byte("super-secret-key-guardianband")
+	}
+	return []byte(secret)
+}
 
 const tokenDuration = 24 * time.Hour
 
 var e164Regex = regexp.MustCompile(`^\+[1-9]\d{1,14}$`)
 
 type AuthRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
+	PhoneNumber string `json:"phoneNumber"`
+	Password    string `json:"password"`
 }
 
 type AuthResponse struct {
@@ -37,18 +47,18 @@ type RegisterResponse struct {
 	PhoneNumber string `json:"phoneNumber"`
 }
 
-// GenerateToken creates a signed JWT for the given username.
-func GenerateToken(username string) (string, error) {
+// GenerateToken creates a signed JWT containing the user's UUID in the sub claim.
+func GenerateToken(userUUID string) (string, error) {
 	claims := jwt.MapClaims{
-		"username": username,
-		"exp":      time.Now().Add(tokenDuration).Unix(),
+		"sub": userUUID,
+		"exp": time.Now().Add(tokenDuration).Unix(),
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	return token.SignedString(getJWTSecret())
 }
 
-// AuthenticateMiddleware protects routes by validating the Bearer JWT token.
+// AuthenticateMiddleware protects routes by validating the Bearer JWT token and injecting user ID into context.
 func AuthenticateMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		authHeader := r.Header.Get("Authorization")
@@ -67,7 +77,7 @@ func AuthenticateMiddleware(next http.Handler) http.Handler {
 			if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, jwt.ErrSignatureInvalid
 			}
-			return jwtSecret, nil
+			return getJWTSecret(), nil
 		})
 
 		if err != nil || !token.Valid {
@@ -75,7 +85,21 @@ func AuthenticateMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		claims, ok := token.Claims.(jwt.MapClaims)
+		if !ok {
+			http.Error(w, "invalid token claims", http.StatusUnauthorized)
+			return
+		}
+
+		userID, ok := claims["sub"].(string)
+		if !ok || userID == "" {
+			http.Error(w, "invalid token subject", http.StatusUnauthorized)
+			return
+		}
+
+		// Inject user UUID into request context
+		ctx := context.WithValue(r.Context(), UserContextKey, userID)
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 
@@ -148,20 +172,38 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	var req AuthRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "invalid request", http.StatusBadRequest)
+		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
 
-	a.mu.RLock()
-	hash, exists := a.users[req.Username]
-	a.mu.RUnlock()
+	if req.PhoneNumber == "" || req.Password == "" {
+		http.Error(w, "missing required fields", http.StatusBadRequest)
+		return
+	}
 
-	if !exists || !CheckPasswordHash(req.Password, hash) {
+	var userID string
+	var passwordHash string
+
+	// Query database for user credentials
+	err := a.db.QueryRowContext(r.Context(), 
+		"SELECT id, password_hash FROM users WHERE phone_number = $1", 
+		req.PhoneNumber).Scan(&userID, &passwordHash)
+	if err == sql.ErrNoRows {
+		http.Error(w, "invalid credentials", http.StatusUnauthorized)
+		return
+	} else if err != nil {
+		http.Error(w, "database query failure: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Compare password hash
+	if !CheckPasswordHash(req.Password, passwordHash) {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	token, err := GenerateToken(req.Username)
+	// Generate Token containing user's UUID in "sub"
+	token, err := GenerateToken(userID)
 	if err != nil {
 		http.Error(w, "error generating token", http.StatusInternalServerError)
 		return
