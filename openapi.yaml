@@ -207,6 +207,59 @@ paths:
         '500':
           description: Internal server error
 
+  /api/documents:
+    get:
+      summary: Get the authenticated user's document catalog list
+      operationId: getDocuments
+      tags:
+        - Documents
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: List of documents successfully retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DocumentCatalog'
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '500':
+          description: Internal server error
+
+  /api/documents/{documentId}:
+    get:
+      summary: Get detailed catalog metadata for a specific document
+      operationId: getDocumentDetail
+      tags:
+        - Documents
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Document catalog details successfully retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentCatalog'
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - document does not belong to the user
+        '404':
+          description: Document not found
+        '500':
+          description: Internal server error
+
 components:
   securitySchemes:
     BearerAuth:
@@ -316,6 +369,39 @@ components:
         timezone:
           type: string
           example: "Europe/Istanbul"
+
+    DocumentCatalog:
+      type: object
+      required:
+        - id
+        - kind
+        - title
+        - contentType
+        - currentVersionId
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          enum: [report, prescription]
+        title:
+          type: string
+          example: "Kan Analiz Raporu"
+        contentType:
+          type: string
+          example: "application/pdf"
+        currentVersionId:
+          type: string
+          example: "v1.0"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
 
 
 
