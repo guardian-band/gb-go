@@ -159,6 +159,54 @@ paths:
         '500':
           description: Internal server error or storage failure
 
+  /api/profile:
+    get:
+      summary: Get the authenticated user's patient profile
+      operationId: getProfile
+      tags:
+        - Profile
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Profile successfully retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientProfile'
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '404':
+          description: Profile not found for this user
+        '500':
+          description: Internal server error
+    put:
+      summary: Create or update the authenticated user's patient profile
+      operationId: putProfile
+      tags:
+        - Profile
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PatientProfile'
+      responses:
+        '200':
+          description: Profile successfully updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PatientProfile'
+        '400':
+          description: Invalid request or payload validations failed
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '500':
+          description: Internal server error
+
 components:
   securitySchemes:
     BearerAuth:
@@ -246,6 +294,28 @@ components:
         recordedAt:
           type: string
           format: date-time
+
+    PatientProfile:
+      type: object
+      properties:
+        birthDate:
+          type: string
+          format: date
+          example: "1995-04-12"
+        bloodType:
+          type: string
+          example: "A+"
+        criticalFacts:
+          type: object
+          additionalProperties: true
+          example:
+            allergies:
+              - penicillin
+            chronicConditions:
+              - asthma
+        timezone:
+          type: string
+          example: "Europe/Istanbul"
 
 
 
