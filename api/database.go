@@ -50,7 +50,28 @@ func initializeDatabase(ctx context.Context, db *sql.DB) error {
 
 		INSERT INTO documents (id, patient_id, kind, title, object_key, current_version_id, etag, content_type, created_by, created_at, updated_at) 
 		SELECT '811a1234-abcd-ef01-2345-6789abcdef01', '607d83ca-be13-4258-88a4-c56adcec91d8', 'report', 'Genel Kan Analiz Raporu', 'reports/blood_test_2026.pdf', 'v1', '"etag-value-123"', 'application/pdf', '607d83ca-be13-4258-88a4-c56adcec91d8', NOW(), NOW()
-		WHERE NOT EXISTS (SELECT 1 FROM documents WHERE id = '811a1234-abcd-ef01-2345-6789abcdef01');`
+		WHERE NOT EXISTS (SELECT 1 FROM documents WHERE id = '811a1234-abcd-ef01-2345-6789abcdef01');
+
+		-- Medication Catalog Seed Data
+		INSERT INTO medication_catalog (id, name, strength)
+		SELECT '111a1234-abcd-ef01-2345-6789abcdef01', 'Parol', '500mg'
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog WHERE id = '111a1234-abcd-ef01-2345-6789abcdef01');
+
+		INSERT INTO medication_catalog (id, name, strength)
+		SELECT '222a1234-abcd-ef01-2345-6789abcdef02', 'Aspirin', '100mg'
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog WHERE id = '222a1234-abcd-ef01-2345-6789abcdef02');
+
+		INSERT INTO medication_catalog (id, name, strength)
+		SELECT '333a1234-abcd-ef01-2345-6789abcdef03', 'Augmentin', '1000mg'
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog WHERE id = '333a1234-abcd-ef01-2345-6789abcdef03');
+
+		INSERT INTO medication_catalog (id, name, strength)
+		SELECT '444a1234-abcd-ef01-2345-6789abcdef04', 'Lipitor', '20mg'
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog WHERE id = '444a1234-abcd-ef01-2345-6789abcdef04');
+
+		INSERT INTO medication_catalog (id, name, strength)
+		SELECT '555a1234-abcd-ef01-2345-6789abcdef05', 'Coraspin', '300mg'
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog WHERE id = '555a1234-abcd-ef01-2345-6789abcdef05');`
 	
 	if _, err := db.ExecContext(ctx, seedSQL); err != nil {
 		fmt.Printf("Database Seeding Warning: %s\n", err.Error())

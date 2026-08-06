@@ -92,6 +92,10 @@ func (a *API) Router() http.Handler {
 			r.Put("/profile", a.PutProfileHandler)
 			r.Get("/documents", a.GetDocumentsHandler)
 			r.Get("/documents/{documentId}", a.GetDocumentDetailHandler)
+			r.Get("/medication-catalog", a.GetMedicationCatalogHandler)
+			r.Get("/medications", a.GetMedicationsHandler)
+			r.Post("/medications", a.PostMedicationHandler)
+			r.Post("/medications/{medicationId}/taken", a.PostMedicationTakenHandler)
 			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("Access granted to protected endpoint!"))
 			})
