@@ -38,6 +38,24 @@ func initializeDatabase(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("initialize database schema: %w", err)
 	}
 
+	// Seed test user, profile, and document for manual verification
+	seedSQL := `
+		INSERT INTO users (id, phone_number, password_hash, created_at)
+		SELECT '607d83ca-be13-4258-88a4-c56adcec91d8', '+905551234567', '$2a$10$vI8K54.1Yk7Qf7DqL78LduC2jE2k1hCjO9dJ8H2JpX0Yk2Z2W2W2W', NOW()
+		WHERE NOT EXISTS (SELECT 1 FROM users WHERE id = '607d83ca-be13-4258-88a4-c56adcec91d8');
+
+		INSERT INTO patient_profiles (user_id, birth_date, blood_type, critical_facts, timezone)
+		SELECT '607d83ca-be13-4258-88a4-c56adcec91d8', '1995-04-12', 'A+', '{"allergies":["penicillin"]}', 'Europe/Istanbul'
+		WHERE NOT EXISTS (SELECT 1 FROM patient_profiles WHERE user_id = '607d83ca-be13-4258-88a4-c56adcec91d8');
+
+		INSERT INTO documents (id, patient_id, kind, title, object_key, current_version_id, etag, content_type, created_by, created_at, updated_at) 
+		SELECT '811a1234-abcd-ef01-2345-6789abcdef01', '607d83ca-be13-4258-88a4-c56adcec91d8', 'report', 'Genel Kan Analiz Raporu', 'reports/blood_test_2026.pdf', 'v1', '"etag-value-123"', 'application/pdf', '607d83ca-be13-4258-88a4-c56adcec91d8', NOW(), NOW()
+		WHERE NOT EXISTS (SELECT 1 FROM documents WHERE id = '811a1234-abcd-ef01-2345-6789abcdef01');`
+	
+	if _, err := db.ExecContext(ctx, seedSQL); err != nil {
+		fmt.Printf("Database Seeding Warning: %s\n", err.Error())
+	}
+
 	return nil
 }
 
