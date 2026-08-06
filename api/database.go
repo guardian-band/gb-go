@@ -52,6 +52,11 @@ func initializeDatabase(ctx context.Context, db *sql.DB) error {
 		SELECT '811a1234-abcd-ef01-2345-6789abcdef01', '607d83ca-be13-4258-88a4-c56adcec91d8', 'report', 'Genel Kan Analiz Raporu', 'reports/blood_test_2026.pdf', 'v1', '"etag-value-123"', 'application/pdf', '607d83ca-be13-4258-88a4-c56adcec91d8', NOW(), NOW()
 		WHERE NOT EXISTS (SELECT 1 FROM documents WHERE id = '811a1234-abcd-ef01-2345-6789abcdef01');
 
+		-- Seed emergency contact link for patient SOS testing
+		INSERT INTO patient_links (id, patient_id, display_name, relationship, phone, is_emergency_contact, created_at)
+		SELECT '999a1234-abcd-ef01-2345-6789abcdef99', '607d83ca-be13-4258-88a4-c56adcec91d8', 'Ahmet Veli', 'Parent', '+905551111111', true, NOW()
+		WHERE NOT EXISTS (SELECT 1 FROM patient_links WHERE id = '999a1234-abcd-ef01-2345-6789abcdef99');
+
 		-- Medication Catalog Seed Data
 		INSERT INTO medication_catalog (id, name, strength)
 		SELECT '111a1234-abcd-ef01-2345-6789abcdef01', 'Parol', '500mg'
