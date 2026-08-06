@@ -172,3 +172,9 @@ CREATE TABLE IF NOT EXISTS emergency_access_sessions (
     CONSTRAINT emergency_access_sessions_revocation_valid
         CHECK (revoked_at IS NULL OR revoked_at >= created_at)
 );
+
+CREATE TABLE IF NOT EXISTS medication_catalog (
+    id UUID PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    strength VARCHAR(100) NOT NULL
+);

@@ -260,6 +260,115 @@ paths:
         '500':
           description: Internal server error
 
+  /api/medication-catalog:
+    get:
+      summary: Retrieve list of common medications in the catalog
+      operationId: getMedicationCatalog
+      tags:
+        - Medications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Medication catalog list successfully retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MedicationCatalogItem'
+        '401':
+          description: Missing or invalid token
+        '500':
+          description: Internal server error
+
+  /api/medications:
+    get:
+      summary: Retrieve the patient's active medication plans
+      operationId: getMedications
+      tags:
+        - Medications
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Active medication plans successfully retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MedicationResponse'
+        '401':
+          description: Missing or invalid token
+        '500':
+          description: Internal server error
+    post:
+      summary: Create a new medication plan for the patient
+      operationId: createMedicationPlan
+      tags:
+        - Medications
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateMedicationRequest'
+      responses:
+        '201':
+          description: Medication plan successfully created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MedicationResponse'
+        '400':
+          description: Invalid inputs or missing prescription reference
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Forbidden - prescription document belongs to another user
+        '500':
+          description: Internal server error
+
+  /api/medications/{medicationId}/taken:
+    post:
+      summary: Record that a dose has been taken now
+      operationId: takeMedicationDose
+      tags:
+        - Medications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: medicationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Dose successfully recorded and next schedule returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TakenResponse'
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Forbidden - medication plan does not belong to the user
+        '404':
+          description: Active medication plan not found
+        '500':
+          description: Internal server error
+
 components:
   securitySchemes:
     BearerAuth:
@@ -400,6 +509,83 @@ components:
           type: string
           format: date-time
         updatedAt:
+          type: string
+          format: date-time
+
+    MedicationCatalogItem:
+      type: object
+      required:
+        - id
+        - name
+        - strength
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+          example: "Parol"
+        strength:
+          type: string
+          example: "500mg"
+
+    CreateMedicationRequest:
+      type: object
+      required:
+        - name
+        - frequencyHours
+      properties:
+        name:
+          type: string
+          example: "Parol"
+        strength:
+          type: string
+          example: "500mg"
+        instructions:
+          type: string
+          example: "Günde 2 kez aç karnına"
+        frequencyHours:
+          type: integer
+          enum: [6, 12, 24]
+          example: 12
+        prescriptionDocumentId:
+          type: string
+          format: uuid
+          nullable: true
+
+    MedicationResponse:
+      type: object
+      required:
+        - id
+        - name
+        - frequencyHours
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        strength:
+          type: string
+        instructions:
+          type: string
+        frequencyHours:
+          type: integer
+        lastTakenAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextScheduledFor:
+          type: string
+          format: date-time
+          nullable: true
+
+    TakenResponse:
+      type: object
+      required:
+        - nextScheduledFor
+      properties:
+        nextScheduledFor:
           type: string
           format: date-time
 

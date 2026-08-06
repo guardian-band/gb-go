@@ -16,6 +16,7 @@ func TestDatabaseSchemaContainsDesignedTables(t *testing.T) {
 		"health_state",
 		"sos_incidents",
 		"emergency_access_sessions",
+		"medication_catalog",
 	}
 
 	for _, table := range tables {
