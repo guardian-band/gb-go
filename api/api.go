@@ -5,20 +5,21 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
 )
 
+type contextKey string
+
+const UserContextKey contextKey = "userId"
+
 // API contains the HTTP handlers and application dependencies.
 type API struct {
-	users   map[string]string // username -> bcrypt hashed password
 	storage *Storage
 	db      *sql.DB
 	redis   *redis.Client
-	mu      sync.RWMutex
 }
 
 // New creates an API server with the application's handlers.
@@ -50,7 +51,6 @@ func New(ctx context.Context) (*API, error) {
 	}
 
 	return &API{
-		users:   make(map[string]string),
 		storage: storage,
 		db:      db,
 		redis:   redisClient,

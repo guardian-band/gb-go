@@ -170,16 +170,16 @@ components:
     AuthRequest:
       type: object
       required:
-        - username
+        - phoneNumber
         - password
       properties:
-        username:
+        phoneNumber:
           type: string
-          example: ahmet
+          description: E.164 biçimindeki telefon numarası
+          example: "+905551234567"
         password:
           type: string
           format: password
-          example: 123456
 
     AuthResponse:
       type: object

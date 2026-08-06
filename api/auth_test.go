@@ -189,3 +189,148 @@ func TestRegisterDatabaseError(t *testing.T) {
 		t.Errorf("sqlmock expectations were not met: %v", err)
 	}
 }
+
+func TestLoginSuccess(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+
+	rawPassword := "secure-password"
+	hashedPassword, _ := HashPassword(rawPassword)
+	userUUID := "user-uuid-1234-5678"
+
+	reqBody := AuthRequest{
+		PhoneNumber: "+905551234567",
+		Password:    rawPassword,
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	// Mock DB returning matching credentials
+	mock.ExpectQuery("^SELECT id, password_hash FROM users WHERE phone_number = \\$1$").
+		WithArgs(reqBody.PhoneNumber).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(userUUID, hashedPassword))
+
+	a.Login(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+
+	var resp AuthResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.Token == "" {
+		t.Error("expected JWT token in response, got empty string")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestLoginWrongPassword(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+
+	rawPassword := "correct-password"
+	hashedPassword, _ := HashPassword(rawPassword)
+	userUUID := "user-uuid-1234-5678"
+
+	reqBody := AuthRequest{
+		PhoneNumber: "+905551234567",
+		Password:    "wrong-password",
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	mock.ExpectQuery("^SELECT id, password_hash FROM users WHERE phone_number = \\$1$").
+		WithArgs(reqBody.PhoneNumber).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "password_hash"}).AddRow(userUUID, hashedPassword))
+
+	a.Login(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401 for wrong password, got %d", rec.Code)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestLoginUnknownUser(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+
+	reqBody := AuthRequest{
+		PhoneNumber: "+905551234567",
+		Password:    "some-password",
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(bodyBytes))
+	rec := httptest.NewRecorder()
+
+	mock.ExpectQuery("^SELECT id, password_hash FROM users WHERE phone_number = \\$1$").
+		WithArgs(reqBody.PhoneNumber).
+		WillReturnError(sql.ErrNoRows)
+
+	a.Login(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401 for unknown user, got %d", rec.Code)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestLoginInvalidRequest(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+
+	invalidRequests := []AuthRequest{
+		{PhoneNumber: "", Password: "password123"},
+		{PhoneNumber: "+905551234567", Password: ""},
+	}
+
+	for _, reqBody := range invalidRequests {
+		bodyBytes, _ := json.Marshal(reqBody)
+		req := httptest.NewRequest(http.MethodPost, "/api/login", bytes.NewReader(bodyBytes))
+		rec := httptest.NewRecorder()
+
+		a.Login(rec, req)
+
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("for request %+v: expected status 400, got %d", reqBody, rec.Code)
+		}
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
