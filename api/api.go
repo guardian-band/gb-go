@@ -88,6 +88,8 @@ func (a *API) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(AuthenticateMiddleware)
 			r.Post("/upload", a.UploadHandler)
+			r.Get("/profile", a.GetProfileHandler)
+			r.Put("/profile", a.PutProfileHandler)
 			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("Access granted to protected endpoint!"))
 			})
