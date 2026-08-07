@@ -15,11 +15,37 @@ type contextKey string
 
 const UserContextKey contextKey = "userId"
 
+// EmergencyContact metadata for notifications.
+type EmergencyContact struct {
+	DisplayName string
+	Phone       string
+}
+
+// NotificationService defines alert contract.
+type NotificationService interface {
+	SendSOSAlert(patientID string, contacts []EmergencyContact, incidentID string) error
+	SendAllClearAlert(patientID string, contacts []EmergencyContact, incidentID string) error
+}
+
+// ConsoleNotificationService prints warnings to std output.
+type ConsoleNotificationService struct{}
+
+func (c *ConsoleNotificationService) SendSOSAlert(patientID string, contacts []EmergencyContact, incidentID string) error {
+	println("ConsoleNotification: SOS alert sent to emergency contacts for patient:", patientID)
+	return nil
+}
+
+func (c *ConsoleNotificationService) SendAllClearAlert(patientID string, contacts []EmergencyContact, incidentID string) error {
+	println("ConsoleNotification: All clear alert sent to emergency contacts for patient:", patientID)
+	return nil
+}
+
 // API contains the HTTP handlers and application dependencies.
 type API struct {
-	storage *Storage
-	db      *sql.DB
-	redis   *redis.Client
+	storage             *Storage
+	db                  *sql.DB
+	redis               *redis.Client
+	notificationService NotificationService
 }
 
 // New creates an API server with the application's handlers.
@@ -51,9 +77,10 @@ func New(ctx context.Context) (*API, error) {
 	}
 
 	return &API{
-		storage: storage,
-		db:      db,
-		redis:   redisClient,
+		storage:             storage,
+		db:                  db,
+		redis:               redisClient,
+		notificationService: &ConsoleNotificationService{},
 	}, nil
 }
 
@@ -96,6 +123,8 @@ func (a *API) Router() http.Handler {
 			r.Get("/medications", a.GetMedicationsHandler)
 			r.Post("/medications", a.PostMedicationHandler)
 			r.Post("/medications/{medicationId}/taken", a.PostMedicationTakenHandler)
+			r.Post("/sos/incidents", a.PostSOSIncidentHandler)
+			r.Post("/sos/incidents/{incidentId}/cancel", a.PostSOSCancelHandler)
 			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("Access granted to protected endpoint!"))
 			})
