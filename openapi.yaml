@@ -115,10 +115,12 @@ paths:
 
   /api/vitals:
     post:
-      summary: Store a vital packet in Redis
+      summary: Store a vital packet in Redis Stream and Cache
       operationId: storeVitals
       tags:
         - Vitals
+      security:
+        - BearerAuth: []
       requestBody:
         required: true
         content:
@@ -130,8 +132,12 @@ paths:
           description: Vitals successfully recorded
         '400':
           description: Invalid vital data range or invalid payload
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - device does not belong to the patient
         '500':
-          description: Internal server error or storage failure
+          description: Internal server error
 
   /api/vitals/{userId}/latest:
     get:
@@ -501,13 +507,11 @@ components:
     VitalPacket:
       type: object
       required:
-        - userId
-        - heartRate
-        - bloodOxygen
         - recordedAt
       properties:
         userId:
           type: string
+          nullable: true
         heartRate:
           type: integer
           description: Kalp atış hızı (bpm)
@@ -519,6 +523,12 @@ components:
         recordedAt:
           type: string
           format: date-time
+        deviceSn:
+          type: string
+          example: "band-xyz-123"
+        readingId:
+          type: string
+          example: "read-999"
 
     PatientProfile:
       type: object

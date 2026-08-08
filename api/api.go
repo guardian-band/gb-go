@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
@@ -76,6 +77,17 @@ func New(ctx context.Context) (*API, error) {
 		println("MinIO Storage warning:", err.Error())
 	}
 
+	// Start background telemetry archiver worker
+	archiver := NewTelemetryArchiver(db, redisClient, storage)
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			_ = archiver.RunOnce(context.Background())
+		}
+	}()
+
 	return &API{
 		storage:             storage,
 		db:                  db,
@@ -108,7 +120,6 @@ func (a *API) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/register", a.Register)
 		r.Post("/login", a.Login)
-		r.Post("/vitals", a.VitalsPostHandler)
 		r.Get("/vitals/{userId}/latest", a.VitalsGetLatestHandler)
 
 		// Protected routes requiring a valid JWT token
@@ -125,6 +136,7 @@ func (a *API) Router() http.Handler {
 			r.Post("/medications/{medicationId}/taken", a.PostMedicationTakenHandler)
 			r.Post("/sos/incidents", a.PostSOSIncidentHandler)
 			r.Post("/sos/incidents/{incidentId}/cancel", a.PostSOSCancelHandler)
+			r.Post("/vitals", a.VitalsPostHandler)
 			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("Access granted to protected endpoint!"))
 			})
