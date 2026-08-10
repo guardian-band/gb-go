@@ -60,20 +60,61 @@ func NewStorage() (*Storage, error) {
 	}, nil
 }
 
-// UploadFile uploads an object to MinIO/S3 and returns its object key.
-func (s *Storage) UploadFile(ctx context.Context, fileHeaderReader io.Reader, fileName string, fileSize int64, contentType string) (string, error) {
+type UploadResult struct {
+	ObjectKey   string
+	VersionID   string
+	ETag        string
+	ContentType string
+	Size        int64
+}
+
+// UploadFile uploads an object to MinIO/S3 and returns its upload info.
+func (s *Storage) UploadFile(ctx context.Context, fileHeaderReader io.Reader, fileName string, fileSize int64, contentType string) (UploadResult, error) {
 	// Generate unique filename to prevent overwrites
 	ext := filepath.Ext(fileName)
 	uniqueFileName := fmt.Sprintf("%s%s", uuid.New().String(), ext)
 
-	_, err := s.client.PutObject(ctx, s.bucketName, uniqueFileName, fileHeaderReader, fileSize, minio.PutObjectOptions{
+	info, err := s.client.PutObject(ctx, s.bucketName, uniqueFileName, fileHeaderReader, fileSize, minio.PutObjectOptions{
 		ContentType: contentType,
 	})
 	if err != nil {
-		return "", fmt.Errorf("failed to upload object: %w", err)
+		return UploadResult{}, fmt.Errorf("failed to upload object: %w", err)
 	}
 
-	return uniqueFileName, nil
+	return UploadResult{
+		ObjectKey:   uniqueFileName,
+		VersionID:   info.VersionID,
+		ETag:        info.ETag,
+		ContentType: contentType,
+		Size:        info.Size,
+	}, nil
+}
+
+// UploadFileWithKey uploads an object to MinIO/S3 using a predefined key.
+func (s *Storage) UploadFileWithKey(ctx context.Context, fileHeaderReader io.Reader, objectKey string, fileSize int64, contentType string) (UploadResult, error) {
+	info, err := s.client.PutObject(ctx, s.bucketName, objectKey, fileHeaderReader, fileSize, minio.PutObjectOptions{
+		ContentType: contentType,
+	})
+	if err != nil {
+		return UploadResult{}, fmt.Errorf("failed to upload object: %w", err)
+	}
+
+	return UploadResult{
+		ObjectKey:   objectKey,
+		VersionID:   info.VersionID,
+		ETag:        info.ETag,
+		ContentType: contentType,
+		Size:        info.Size,
+	}, nil
+}
+
+// DeleteFile deletes an object from MinIO/S3 (useful for cleanup).
+func (s *Storage) DeleteFile(ctx context.Context, objectKey string) error {
+	err := s.client.RemoveObject(ctx, s.bucketName, objectKey, minio.RemoveObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to delete object: %w", err)
+	}
+	return nil
 }
 
 // UploadHandler handles file upload requests (POST /api/upload).
@@ -98,7 +139,7 @@ func (a *API) UploadHandler(w http.ResponseWriter, r *http.Request) {
 		contentType = "application/octet-stream"
 	}
 
-	objectKey, err := a.storage.UploadFile(r.Context(), file, header.Filename, header.Size, contentType)
+	res, err := a.storage.UploadFile(r.Context(), file, header.Filename, header.Size, contentType)
 	if err != nil {
 		http.Error(w, "failed to store file", http.StatusInternalServerError)
 		return
@@ -107,7 +148,7 @@ func (a *API) UploadHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]string{
-		"file_key": objectKey,
+		"file_key": res.ObjectKey,
 		"message":  "file uploaded successfully",
 	})
 }
