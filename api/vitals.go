@@ -128,16 +128,42 @@ func (a *API) VitalsPostHandler(w http.ResponseWriter, r *http.Request) {
 
 // VitalsGetLatestHandler retrieves the latest vital packet stored in Redis.
 func (a *API) VitalsGetLatestHandler(w http.ResponseWriter, r *http.Request) {
+	authenticatedUserID, ok := r.Context().Value(UserContextKey).(string)
+	if !ok || authenticatedUserID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
 	userID := chi.URLParam(r, "userId")
 	if userID == "" {
 		http.Error(w, "missing userId path parameter", http.StatusBadRequest)
 		return
 	}
 
+	// 1. Authorization checks
+	if userID != authenticatedUserID {
+		var isAuthorized bool
+		err := a.db.QueryRowContext(r.Context(), `
+			SELECT EXISTS(
+				SELECT 1 FROM patient_links
+				WHERE patient_id = $1 AND linked_user_id = $2 AND can_monitor = true
+			)
+		`, userID, authenticatedUserID).Scan(&isAuthorized)
+		if err != nil {
+			http.Error(w, "database query error", http.StatusInternalServerError)
+			return
+		}
+		if !isAuthorized {
+			http.Error(w, "patient not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// 2. Fetch from Redis cache
 	redisKey := "vitals:" + userID + ":latest"
 	packetJSON, err := a.redis.Get(r.Context(), redisKey).Result()
 	if err == redis.Nil {
-		http.Error(w, "no vitals found for the user", http.StatusNotFound)
+		http.Error(w, "patient not found", http.StatusNotFound)
 		return
 	} else if err != nil {
 		http.Error(w, "failed to retrieve vitals: "+err.Error(), http.StatusInternalServerError)

@@ -145,6 +145,8 @@ paths:
       operationId: getLatestVitals
       tags:
         - Vitals
+      security:
+        - BearerAuth: []
       parameters:
         - name: userId
           in: path
@@ -160,8 +162,10 @@ paths:
                 $ref: '#/components/schemas/VitalPacket'
         '400':
           description: Invalid request
+        '401':
+          description: Unauthorized access (missing or invalid JWT token)
         '404':
-          description: Vitals not found for this user
+          description: Patient not found or unauthorized access (hidden status)
         '500':
           description: Internal server error or storage failure
 

@@ -166,7 +166,7 @@ func TestVitalsPostUnauthorizedAndDeviceMismatch(t *testing.T) {
 	}
 }
 
-func TestVitalsGetLatestSuccess(t *testing.T) {
+func TestVitalsGetLatestSuccessSelf(t *testing.T) {
 	mr, err := miniredis.Run()
 	if err != nil {
 		t.Fatalf("failed to start miniredis: %v", err)
@@ -193,13 +193,12 @@ func TestVitalsGetLatestSuccess(t *testing.T) {
 	mr.Set(redisKey, string(packetJSON))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/vitals/user-123/latest", nil)
+	// Inject JWT context matching path param (self-access)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "user-123"))
 	rec := httptest.NewRecorder()
 
-	// Setup chi context for url parameters
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("userId", "user-123")
-	
-	// Inject Chi Context
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	a.VitalsGetLatestHandler(rec, req)
@@ -218,7 +217,13 @@ func TestVitalsGetLatestSuccess(t *testing.T) {
 	}
 }
 
-func TestVitalsGetLatestNotFound(t *testing.T) {
+func TestVitalsGetLatestAuthorizedLink(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
 	mr, err := miniredis.Run()
 	if err != nil {
 		t.Fatalf("failed to start miniredis: %v", err)
@@ -230,18 +235,85 @@ func TestVitalsGetLatestNotFound(t *testing.T) {
 	})
 	defer redisClient.Close()
 
-	a := &API{redis: redisClient}
+	a := &API{db: db, redis: redisClient}
 
-	req := httptest.NewRequest(http.MethodGet, "/api/vitals/non-existent/latest", nil)
+	packet := VitalPacket{
+		UserID:      "patient-111",
+		HeartRate:   85,
+		BloodOxygen: 97,
+		RecordedAt:  time.Now().UTC(),
+	}
+	packetJSON, _ := json.Marshal(packet)
+	mr.Set("vitals:patient-111:latest", string(packetJSON))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/vitals/patient-111/latest", nil)
+	// Inject JWT context for a different user (clinician-222)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "clinician-222"))
 	rec := httptest.NewRecorder()
 
 	rctx := chi.NewRouteContext()
-	rctx.URLParams.Add("userId", "non-existent")
+	rctx.URLParams.Add("userId", "patient-111")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	// Mock DB check: link exists with can_monitor = true
+	mock.ExpectQuery("^SELECT EXISTS").
+		WithArgs("patient-111", "clinician-222").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
+
+	a.VitalsGetLatestHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
+	}
+}
+
+func TestVitalsGetLatestUnauthorizedLink(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/vitals/patient-111/latest", nil)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "unauthorized-user"))
+	rec := httptest.NewRecorder()
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("userId", "patient-111")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	// Mock DB check: no link or can_monitor = false (return false)
+	mock.ExpectQuery("^SELECT EXISTS").
+		WithArgs("patient-111", "unauthorized-user").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	a.VitalsGetLatestHandler(rec, req)
+
+	// Must return 404 to hide target details
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", rec.Code)
+	}
+}
+
+func TestVitalsGetLatestNoToken(t *testing.T) {
+	a := &API{}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/vitals/patient-111/latest", nil)
+	rec := httptest.NewRecorder()
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("userId", "patient-111")
 	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
 
 	a.VitalsGetLatestHandler(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Errorf("expected status 404, got %d", rec.Code)
+	if rec.Code != http.StatusUnauthorized {
+		t.Errorf("expected status 401, got %d", rec.Code)
 	}
 }
