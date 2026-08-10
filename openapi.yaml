@@ -238,6 +238,55 @@ paths:
           description: Missing, invalid, or expired JWT token
         '500':
           description: Internal server error
+    post:
+      summary: Create a new document in catalog and upload file to S3
+      operationId: createDocument
+      tags:
+        - Documents
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Document file (PDF, JPEG, PNG, max 10MB)
+                kind:
+                  type: string
+                  enum: [report, prescription]
+                  description: Kind of document
+                title:
+                  type: string
+                  description: Title of the document
+              required: [file, kind, title]
+      responses:
+        '201':
+          description: Document successfully created and uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  objectKey:
+                    type: string
+                  versionId:
+                    type: string
+                  message:
+                    type: string
+        '400':
+          description: Invalid request body, oversize file, or unsupported file format
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '500':
+          description: Internal server error or storage failure
 
   /api/documents/{documentId}:
     get:
@@ -261,6 +310,85 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/DocumentCatalog'
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - document does not belong to the user
+        '404':
+          description: Document not found
+        '500':
+          description: Internal server error
+
+  /api/documents/{documentId}/content:
+    get:
+      summary: Stream authorized document content from S3
+      operationId: getDocumentContent
+      tags:
+        - Documents
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Document stream successfully retrieved
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - document does not belong to the user
+        '404':
+          description: Document not found
+        '500':
+          description: Internal server error
+    put:
+      summary: Update the content of an existing document
+      operationId: updateDocumentContent
+      tags:
+        - Documents
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Document file (PDF, JPEG, PNG, max 10MB)
+              required: [file]
+      responses:
+        '200':
+          description: Document content successfully updated
+        '400':
+          description: Invalid request body, oversize file, or unsupported file format
         '401':
           description: Missing, invalid, or expired JWT token
         '403':
