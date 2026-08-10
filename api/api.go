@@ -120,11 +120,11 @@ func (a *API) Router() http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Post("/register", a.Register)
 		r.Post("/login", a.Login)
-		r.Get("/vitals/{userId}/latest", a.VitalsGetLatestHandler)
-
 		// Protected routes requiring a valid JWT token
 		r.Group(func(r chi.Router) {
 			r.Use(AuthenticateMiddleware)
+			r.Get("/vitals/{userId}/latest", a.VitalsGetLatestHandler)
+			
 			r.Post("/upload", a.UploadHandler)
 			r.Get("/profile", a.GetProfileHandler)
 			r.Put("/profile", a.PutProfileHandler)
@@ -137,6 +137,12 @@ func (a *API) Router() http.Handler {
 			r.Post("/sos/incidents", a.PostSOSIncidentHandler)
 			r.Post("/sos/incidents/{incidentId}/cancel", a.PostSOSCancelHandler)
 			r.Post("/vitals", a.VitalsPostHandler)
+			
+			// Patient Links
+			r.Get("/patient-links", a.GetPatientLinksHandler)
+			r.Post("/patient-links", a.PostPatientLinkHandler)
+			r.Patch("/patient-links/{linkId}", a.PatchPatientLinkHandler)
+			r.Delete("/patient-links/{linkId}", a.DeletePatientLinkHandler)
 			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("Access granted to protected endpoint!"))
 			})

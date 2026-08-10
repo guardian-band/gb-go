@@ -438,6 +438,76 @@ paths:
         '500':
           description: Internal server error
 
+  /api/patient-links:
+    get:
+      summary: Get patient links
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create patient link
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone:
+                  type: string
+                displayName:
+                  type: string
+                relationship:
+                  type: string
+                kind:
+                  type: string
+                canMonitor:
+                  type: boolean
+                isEmergencyContact:
+                  type: boolean
+                isPrimary:
+                  type: boolean
+      responses:
+        '201':
+          description: Created
+        '400':
+          description: Bad Request
+        '403':
+          description: Forbidden
+        '409':
+          description: Conflict
+  /api/patient-links/{linkId}:
+    patch:
+      summary: Update patient link
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: linkId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: OK
+    delete:
+      summary: Delete patient link
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: linkId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: No Content
+
 components:
   securitySchemes:
     BearerAuth:
