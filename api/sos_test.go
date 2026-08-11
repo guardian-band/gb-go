@@ -131,7 +131,7 @@ func TestPostSOSIncidentInvalidCoords(t *testing.T) {
 	}
 }
 
-func TestPostSOSCancelSuccess(t *testing.T) {
+func TestPostSOSAllClearSuccess(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("failed to create sqlmock: %v", err)
@@ -143,7 +143,7 @@ func TestPostSOSCancelSuccess(t *testing.T) {
 	userID := "user-uuid-123"
 	incidentID := "incident-uuid-abc"
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sos/incidents/"+incidentID+"/cancel", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sos/incidents/"+incidentID+"/all-clear", nil)
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 
 	rctx := chi.NewRouteContext()
@@ -152,14 +152,12 @@ func TestPostSOSCancelSuccess(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 
-	startedAt := time.Now().Add(-1 * time.Hour) // 1 hour ago (valid, since no time limit now)
-
-	mock.ExpectQuery("^SELECT patient_id, started_at, status FROM sos_incidents WHERE id = \\$1").
+	mock.ExpectQuery("^SELECT patient_id, status, all_clear_at FROM sos_incidents WHERE id = \\$1").
 		WithArgs(incidentID).
-		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "started_at", "status"}).
-			AddRow(userID, startedAt, "active"))
+		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "status", "all_clear_at"}).
+			AddRow(userID, "active", nil))
 
-	mock.ExpectExec("UPDATE sos_incidents SET status = 'cancelled'").
+	mock.ExpectExec("UPDATE sos_incidents SET all_clear_at = \\$2 WHERE id = \\$1").
 		WithArgs(incidentID, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
@@ -168,10 +166,10 @@ func TestPostSOSCancelSuccess(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone"}).
 			AddRow("Ahmet Veli", "+905551111111"))
 
-	a.PostSOSCancelHandler(rec, req)
+	a.PostSOSAllClearHandler(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rec.Code)
+		t.Errorf("expected status 200, got %d, body: %s", rec.Code, rec.Body.String())
 	}
 
 	// Give goroutine a moment to run SendAllClearAlert
@@ -189,7 +187,54 @@ func TestPostSOSCancelSuccess(t *testing.T) {
 	}
 }
 
-func TestPostSOSCancelForbidden(t *testing.T) {
+func TestPostSOSAllClearIdempotent(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	ns := &mockNotificationService{}
+	a := &API{db: db, notificationService: ns}
+	userID := "user-uuid-123"
+	incidentID := "incident-uuid-abc"
+
+	req := httptest.NewRequest(http.MethodPost, "/api/sos/incidents/"+incidentID+"/all-clear", nil)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("incidentId", incidentID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+
+	alreadyClearedAt := time.Now().Add(-10 * time.Second)
+
+	// Since it's already cleared, the handler should just return OK without database updates or notification calls
+	mock.ExpectQuery("^SELECT patient_id, status, all_clear_at FROM sos_incidents WHERE id = \\$1").
+		WithArgs(incidentID).
+		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "status", "all_clear_at"}).
+			AddRow(userID, "active", alreadyClearedAt))
+
+	a.PostSOSAllClearHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+
+	// Give goroutine a moment just in case
+	time.Sleep(10 * time.Millisecond)
+
+	if ns.allClearCalled {
+		t.Error("expected notification service SendAllClearAlert NOT to be called (idempotency check)")
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestPostSOSAllClearForbidden(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {
 		t.Fatalf("failed to create sqlmock: %v", err)
@@ -201,7 +246,7 @@ func TestPostSOSCancelForbidden(t *testing.T) {
 	otherUserID := "user-uuid-999"
 	incidentID := "incident-uuid-abc"
 
-	req := httptest.NewRequest(http.MethodPost, "/api/sos/incidents/"+incidentID+"/cancel", nil)
+	req := httptest.NewRequest(http.MethodPost, "/api/sos/incidents/"+incidentID+"/all-clear", nil)
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 
 	rctx := chi.NewRouteContext()
@@ -210,15 +255,13 @@ func TestPostSOSCancelForbidden(t *testing.T) {
 
 	rec := httptest.NewRecorder()
 
-	startedAt := time.Now().Add(-10 * time.Second)
-
 	// Return otherUserID as patient_id
-	mock.ExpectQuery("^SELECT patient_id, started_at, status FROM sos_incidents WHERE id = \\$1").
+	mock.ExpectQuery("^SELECT patient_id, status, all_clear_at FROM sos_incidents WHERE id = \\$1").
 		WithArgs(incidentID).
-		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "started_at", "status"}).
-			AddRow(otherUserID, startedAt, "active"))
+		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "status", "all_clear_at"}).
+			AddRow(otherUserID, "active", nil))
 
-	a.PostSOSCancelHandler(rec, req)
+	a.PostSOSAllClearHandler(rec, req)
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected status 403, got %d", rec.Code)

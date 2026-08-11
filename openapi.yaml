@@ -535,10 +535,10 @@ paths:
         '500':
           description: Internal server error
 
-  /api/sos/incidents/{incidentId}/cancel:
+  /api/sos/incidents/{incidentId}/all-clear:
     post:
-      summary: Send a follow-up "all clear" notification and resolve the event
-      operationId: cancelSOSIncident
+      summary: Process an all-clear signal for the active SOS incident
+      operationId: allClearSOSIncident
       tags:
         - SOS
       security:
@@ -552,15 +552,11 @@ paths:
             format: uuid
       responses:
         '200':
-          description: Cancellation processed and follow-up alert dispatched
+          description: All clear processed successfully and notification sent
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  message:
-                    type: string
-                    example: "cancellation request processed, all clear alert sent"
+                $ref: '#/components/schemas/SOSAllClearResponse'
         '401':
           description: Missing, invalid, or expired JWT token
         '403':
@@ -923,6 +919,24 @@ components:
         startedAt:
           type: string
           format: date-time
+
+    SOSAllClearResponse:
+      type: object
+      required:
+        - id
+        - status
+        - allClearAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        status:
+          type: string
+          example: "active"
+        allClearAt:
+          type: string
+          format: date-time
+          nullable: true
 
 
 

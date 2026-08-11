@@ -126,8 +126,15 @@ func (a *API) PostSOSIncidentHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// PostSOSCancelHandler handles cancellation signal, changes state to cancelled, and sends "all clear" follow-up.
-func (a *API) PostSOSCancelHandler(w http.ResponseWriter, r *http.Request) {
+// SOSAllClearResponse represents the response when an SOS incident all-clear is processed.
+type SOSAllClearResponse struct {
+	ID         string     `json:"id"`
+	Status     string     `json:"status"`
+	AllClearAt *time.Time `json:"allClearAt"`
+}
+
+// PostSOSAllClearHandler handles "all clear" signal, updates all_clear_at, and sends "all clear" notification to contacts.
+func (a *API) PostSOSAllClearHandler(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(UserContextKey).(string)
 	if !ok || userID == "" {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -141,12 +148,12 @@ func (a *API) PostSOSCancelHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var patientID string
-	var startedAt time.Time
 	var status string
+	var allClearAtNull sql.NullTime
 
 	err := a.db.QueryRowContext(r.Context(),
-		"SELECT patient_id, started_at, status FROM sos_incidents WHERE id = $1",
-		incidentID).Scan(&patientID, &startedAt, &status)
+		"SELECT patient_id, status, all_clear_at FROM sos_incidents WHERE id = $1",
+		incidentID).Scan(&patientID, &status, &allClearAtNull)
 
 	if err == sql.ErrNoRows {
 		http.Error(w, "SOS incident not found", http.StatusNotFound)
@@ -162,10 +169,24 @@ func (a *API) PostSOSCancelHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Update SOS incident status in database
+	// Idempotency: check if all-clear is already set
+	if allClearAtNull.Valid {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(SOSAllClearResponse{
+			ID:         incidentID,
+			Status:     status,
+			AllClearAt: &allClearAtNull.Time,
+		})
+		return
+	}
+
+	now := time.Now()
+
+	// Update SOS incident all_clear_at in database (keeping the status intact)
 	_, err = a.db.ExecContext(r.Context(),
-		"UPDATE sos_incidents SET status = 'cancelled', cancelled_at = $2 WHERE id = $1",
-		incidentID, time.Now())
+		"UPDATE sos_incidents SET all_clear_at = $2 WHERE id = $1",
+		incidentID, now)
 	if err != nil {
 		http.Error(w, "failed to update SOS incident: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -179,7 +200,7 @@ func (a *API) PostSOSCancelHandler(w http.ResponseWriter, r *http.Request) {
 		userID)
 
 	if err != nil {
-		println("Warning fetching emergency contacts for cancel all clear:", err.Error())
+		println("Warning fetching emergency contacts for all clear:", err.Error())
 	} else {
 		defer rows.Close()
 		contacts := make([]EmergencyContact, 0)
@@ -204,7 +225,9 @@ func (a *API) PostSOSCancelHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"message": "cancellation request processed, all clear alert sent",
+	json.NewEncoder(w).Encode(SOSAllClearResponse{
+		ID:         incidentID,
+		Status:     status,
+		AllClearAt: &now,
 	})
 }
