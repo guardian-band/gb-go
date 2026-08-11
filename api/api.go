@@ -138,7 +138,7 @@ func (a *API) Router() http.Handler {
 			r.Post("/medications", a.PostMedicationHandler)
 			r.Post("/medications/{medicationId}/taken", a.PostMedicationTakenHandler)
 			r.Post("/sos/incidents", a.PostSOSIncidentHandler)
-			r.Post("/sos/incidents/{incidentId}/cancel", a.PostSOSCancelHandler)
+			r.Post("/sos/incidents/{incidentId}/all-clear", a.PostSOSAllClearHandler)
 			r.Post("/vitals", a.VitalsPostHandler)
 			
 			// Patient Links
