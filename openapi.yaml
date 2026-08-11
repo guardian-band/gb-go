@@ -566,6 +566,140 @@ paths:
         '500':
           description: Internal server error
 
+  /api/emergency-access/tokens:
+    post:
+      summary: Generate a short-lived QR access token for the patient
+      operationId: createEmergencyAccessToken
+      tags:
+        - Emergency Access
+      security:
+        - BearerAuth: []
+      responses:
+        '201':
+          description: QR token successfully created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    example: "4d7c83ba9a8c7b8d8f9e0a1b2c3d4e5f"
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '500':
+          description: Internal server error
+
+  /api/emergency-access/redeem:
+    post:
+      summary: Redeem patient QR token to establish emergency session
+      operationId: redeemEmergencyToken
+      tags:
+        - Emergency Access
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - token
+              properties:
+                token:
+                  type: string
+                  example: "4d7c83ba9a8c7b8d8f9e0a1b2c3d4e5f"
+      responses:
+        '200':
+          description: Token redeemed successfully and session established
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  sessionId:
+                    type: string
+                    format: uuid
+                  expiresAt:
+                    type: string
+                    format: date-time
+        '400':
+          description: Invalid or expired token
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '500':
+          description: Internal server error
+
+  /api/emergency-access/sessions/{sessionId}/medical-card:
+    get:
+      summary: Retrieve patient emergency medical card for active session
+      operationId: getEmergencyMedicalCard
+      tags:
+        - Emergency Access
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Medical card retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyMedicalCard'
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - session expired, revoked, or responder mismatch
+        '404':
+          description: Session not found
+        '500':
+          description: Internal server error
+
+  /api/emergency-access/sessions/{sessionId}:
+    delete:
+      summary: Revoke emergency access session (patient only)
+      operationId: revokeEmergencySession
+      tags:
+        - Emergency Access
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Session successfully revoked
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "emergency access session revoked successfully"
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - patient mismatch
+        '404':
+          description: Session not found
+        '500':
+          description: Internal server error
+
   /api/patient-links:
     get:
       summary: Get patient links
@@ -937,6 +1071,61 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    EmergencyMedicalCard:
+      type: object
+      required:
+        - bloodType
+        - criticalFacts
+        - medications
+      properties:
+        bloodType:
+          type: string
+          example: "A+"
+        criticalFacts:
+          type: object
+          example: {"allergies": ["Penicillin"]}
+        medications:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmergencyMedication'
+        latestVitals:
+          $ref: '#/components/schemas/EmergencyLatestVitals'
+          nullable: true
+
+    EmergencyMedication:
+      type: object
+      required:
+        - name
+        - strength
+        - instructions
+      properties:
+        name:
+          type: string
+          example: "Aspirin"
+        strength:
+          type: string
+          example: "100mg"
+        instructions:
+          type: string
+          example: "Take once daily"
+
+    EmergencyLatestVitals:
+      type: object
+      required:
+        - heartRate
+        - bloodOxygen
+        - recordedAt
+      properties:
+        heartRate:
+          type: integer
+          example: 72
+        bloodOxygen:
+          type: integer
+          example: 98
+        recordedAt:
+          type: string
+          format: date-time
 
 
 
