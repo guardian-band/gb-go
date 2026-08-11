@@ -139,9 +139,9 @@ CREATE TABLE IF NOT EXISTS sos_incidents (
     address TEXT,
     started_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
     resolved_at TIMESTAMP WITH TIME ZONE,
-    cancelled_at TIMESTAMP WITH TIME ZONE,
+    all_clear_at TIMESTAMP WITH TIME ZONE,
     CONSTRAINT sos_incidents_status_valid
-        CHECK (status IN ('active', 'responding', 'resolved', 'cancelled')),
+        CHECK (status IN ('active', 'responding', 'resolved')),
     CONSTRAINT sos_incidents_latitude_valid
         CHECK (latitude IS NULL OR latitude BETWEEN -90 AND 90),
     CONSTRAINT sos_incidents_longitude_valid
@@ -150,12 +150,10 @@ CREATE TABLE IF NOT EXISTS sos_incidents (
         CHECK (accuracy_meters IS NULL OR accuracy_meters >= 0),
     CONSTRAINT sos_incidents_completion_valid
         CHECK (
-            (status = 'resolved' AND resolved_at IS NOT NULL AND cancelled_at IS NULL)
-            OR (status = 'cancelled' AND cancelled_at IS NOT NULL AND resolved_at IS NULL)
+            (status = 'resolved' AND resolved_at IS NOT NULL)
             OR (
                 status IN ('active', 'responding')
                 AND resolved_at IS NULL
-                AND cancelled_at IS NULL
             )
         )
 );
