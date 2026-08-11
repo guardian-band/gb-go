@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -30,7 +32,120 @@ type SOSIncidentResponse struct {
 	StartedAt      time.Time `json:"startedAt"`
 }
 
-// PostSOSIncidentHandler triggers a new SOS incident and alerts emergency contacts.
+// createOutboxEntries creates outbox records for a given patient's emergency contacts inside a transaction.
+func createOutboxEntries(ctx context.Context, tx *sql.Tx, patientID string, incidentID string, eventType string, message string) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT display_name, COALESCE(phone, ''), linked_user_id 
+		FROM patient_links 
+		WHERE patient_id = $1 AND is_emergency_contact = true`,
+		patientID)
+	if err != nil {
+		return fmt.Errorf("query emergency contacts: %w", err)
+	}
+	defer rows.Close()
+
+	type contact struct {
+		phone        string
+		linkedUserID sql.NullString
+	}
+	var contacts []contact
+	for rows.Next() {
+		var c contact
+		var displayName string
+		if err := rows.Scan(&displayName, &c.phone, &c.linkedUserID); err == nil {
+			contacts = append(contacts, c)
+		}
+	}
+
+	payload := map[string]interface{}{
+		"incidentId": incidentID,
+		"message":    message,
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal payload: %w", err)
+	}
+
+	for _, c := range contacts {
+		var endpoints []struct {
+			channel string
+			token   string
+		}
+
+		if c.linkedUserID.Valid && c.linkedUserID.String != "" {
+			erows, err := tx.QueryContext(ctx, `
+				SELECT channel, token FROM notification_endpoints
+				WHERE user_id = $1 AND active = true`,
+				c.linkedUserID.String)
+			if err == nil {
+				for erows.Next() {
+					var ep struct {
+						channel string
+						token   string
+					}
+					if err := erows.Scan(&ep.channel, &ep.token); err == nil {
+						endpoints = append(endpoints, ep)
+					}
+				}
+				erows.Close()
+			}
+		}
+
+		if len(endpoints) > 0 {
+			// Write outbox entry for each registered endpoint
+			for _, ep := range endpoints {
+				idempotencyKey := fmt.Sprintf("%s:%s:%s", incidentID, eventType, ep.token)
+				
+				var exists bool
+				err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE idempotency_key = $1)", idempotencyKey).Scan(&exists)
+				if err != nil {
+					return fmt.Errorf("check outbox idempotency: %w", err)
+				}
+				if exists {
+					continue
+				}
+
+				outboxID := uuid.New().String()
+				_, err = tx.ExecContext(ctx, `
+					INSERT INTO notification_outbox (id, event_type, incident_id, recipient_id, recipient_address, channel, payload, status, idempotency_key)
+					VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)`,
+					outboxID, eventType, incidentID, c.linkedUserID, ep.token, ep.channel, payloadBytes, idempotencyKey)
+				if err != nil {
+					return fmt.Errorf("insert push outbox: %w", err)
+				}
+			}
+		} else if c.phone != "" {
+			// Fallback: Write SMS outbox entry
+			idempotencyKey := fmt.Sprintf("%s:%s:%s", incidentID, eventType, c.phone)
+			
+			var exists bool
+			err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE idempotency_key = $1)", idempotencyKey).Scan(&exists)
+			if err != nil {
+				return fmt.Errorf("check outbox idempotency fallback: %w", err)
+			}
+			if exists {
+				continue
+			}
+
+			outboxID := uuid.New().String()
+			var recipientID interface{} = nil
+			if c.linkedUserID.Valid && c.linkedUserID.String != "" {
+				recipientID = c.linkedUserID.String
+			}
+			_, err = tx.ExecContext(ctx, `
+				INSERT INTO notification_outbox (id, event_type, incident_id, recipient_id, recipient_address, channel, payload, status, idempotency_key)
+				VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', $8)`,
+				outboxID, eventType, incidentID, recipientID, c.phone, "sms", payloadBytes, idempotencyKey)
+			if err != nil {
+				return fmt.Errorf("insert sms outbox: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// PostSOSIncidentHandler triggers a new SOS incident and alerts emergency contacts via transaction outbox.
 func (a *API) PostSOSIncidentHandler(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(UserContextKey).(string)
 	if !ok || userID == "" {
@@ -69,8 +184,15 @@ func (a *API) PostSOSIncidentHandler(w http.ResponseWriter, r *http.Request) {
 	incidentID := uuid.New().String()
 	startedAt := time.Now()
 
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		http.Error(w, "failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
 	// Insert active SOS incident into database
-	_, err := a.db.ExecContext(r.Context(), `
+	_, err = tx.ExecContext(r.Context(), `
 		INSERT INTO sos_incidents (id, patient_id, status, latitude, longitude, accuracy_meters, address, started_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
 		incidentID, userID, "active", req.Latitude, req.Longitude, req.AccuracyMeters, req.Address, startedAt)
@@ -80,36 +202,16 @@ func (a *API) PostSOSIncidentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch patient emergency contacts from patient_links
-	rows, err := a.db.QueryContext(r.Context(), `
-		SELECT display_name, phone 
-		FROM patient_links 
-		WHERE patient_id = $1 AND is_emergency_contact = true`,
-		userID)
-
+	// Create Outbox entries in transaction
+	err = createOutboxEntries(r.Context(), tx, userID, incidentID, "sos", "Emergency SOS alert: Patient needs assistance.")
 	if err != nil {
-		// Log warning, but still return success for SOS creation since incident is recorded
-		println("Warning fetching emergency contacts:", err.Error())
-	} else {
-		defer rows.Close()
-		contacts := make([]EmergencyContact, 0)
-		for rows.Next() {
-			var displayName sql.NullString
-			var phone sql.NullString
-			if err := rows.Scan(&displayName, &phone); err == nil {
-				contacts = append(contacts, EmergencyContact{
-					DisplayName: displayName.String,
-					Phone:       phone.String,
-				})
-			}
-		}
+		http.Error(w, "failed to record notifications: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		// Dispatch SOS alerts asynchronously
-		if len(contacts) > 0 {
-			go func() {
-				_ = a.notificationService.SendSOSAlert(userID, contacts, incidentID)
-			}()
-		}
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "failed to commit transaction: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -133,7 +235,7 @@ type SOSAllClearResponse struct {
 	AllClearAt *time.Time `json:"allClearAt"`
 }
 
-// PostSOSAllClearHandler handles "all clear" signal, updates all_clear_at, and sends "all clear" notification to contacts.
+// PostSOSAllClearHandler handles "all clear" signal, updates all_clear_at, and writes "all clear" outbox notifications.
 func (a *API) PostSOSAllClearHandler(w http.ResponseWriter, r *http.Request) {
 	userID, ok := r.Context().Value(UserContextKey).(string)
 	if !ok || userID == "" {
@@ -183,8 +285,15 @@ func (a *API) PostSOSAllClearHandler(w http.ResponseWriter, r *http.Request) {
 
 	now := time.Now()
 
+	tx, err := a.db.BeginTx(r.Context(), nil)
+	if err != nil {
+		http.Error(w, "failed to start transaction: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
 	// Update SOS incident all_clear_at in database (keeping the status intact)
-	_, err = a.db.ExecContext(r.Context(),
+	_, err = tx.ExecContext(r.Context(),
 		"UPDATE sos_incidents SET all_clear_at = $2 WHERE id = $1",
 		incidentID, now)
 	if err != nil {
@@ -192,35 +301,16 @@ func (a *API) PostSOSAllClearHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Fetch emergency contacts to send "all clear" notification
-	rows, err := a.db.QueryContext(r.Context(), `
-		SELECT display_name, phone 
-		FROM patient_links 
-		WHERE patient_id = $1 AND is_emergency_contact = true`,
-		userID)
-
+	// Create Outbox entries in transaction
+	err = createOutboxEntries(r.Context(), tx, userID, incidentID, "all_clear", "I'm good, everything is fine.")
 	if err != nil {
-		println("Warning fetching emergency contacts for all clear:", err.Error())
-	} else {
-		defer rows.Close()
-		contacts := make([]EmergencyContact, 0)
-		for rows.Next() {
-			var displayName sql.NullString
-			var phone sql.NullString
-			if err := rows.Scan(&displayName, &phone); err == nil {
-				contacts = append(contacts, EmergencyContact{
-					DisplayName: displayName.String,
-					Phone:       phone.String,
-				})
-			}
-		}
+		http.Error(w, "failed to record all-clear notifications: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		// Dispatch All Clear alerts asynchronously
-		if len(contacts) > 0 {
-			go func() {
-				_ = a.notificationService.SendAllClearAlert(userID, contacts, incidentID)
-			}()
-		}
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "failed to commit transaction: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")

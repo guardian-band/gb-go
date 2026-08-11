@@ -177,3 +177,30 @@ CREATE TABLE IF NOT EXISTS medication_catalog (
     name VARCHAR(200) NOT NULL,
     strength VARCHAR(100) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS notification_endpoints (
+    id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    channel VARCHAR(32) NOT NULL,
+    token TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notification_outbox (
+    id UUID PRIMARY KEY,
+    event_type VARCHAR(32) NOT NULL,
+    incident_id UUID NOT NULL REFERENCES sos_incidents(id) ON DELETE CASCADE,
+    recipient_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    recipient_address VARCHAR(255) NOT NULL,
+    channel VARCHAR(32) NOT NULL DEFAULT 'sms',
+    payload JSONB NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+    attempt_count INTEGER NOT NULL DEFAULT 0,
+    next_attempt TIMESTAMP WITH TIME ZONE,
+    sent_at TIMESTAMP WITH TIME ZONE,
+    idempotency_key VARCHAR(255) UNIQUE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_status_next ON notification_outbox(status, next_attempt);
