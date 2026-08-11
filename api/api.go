@@ -43,10 +43,11 @@ func (c *ConsoleNotificationService) SendAllClearAlert(patientID string, contact
 
 // API contains the HTTP handlers and application dependencies.
 type API struct {
-	storage             *Storage
-	db                  *sql.DB
-	redis               *redis.Client
-	notificationService NotificationService
+	storage              *Storage
+	db                   *sql.DB
+	redis                *redis.Client
+	notificationService  NotificationService
+	notificationProvider NotificationProvider
 }
 
 // New creates an API server with the application's handlers.
@@ -77,6 +78,14 @@ func New(ctx context.Context) (*API, error) {
 		println("MinIO Storage warning:", err.Error())
 	}
 
+	apiServer := &API{
+		storage:              storage,
+		db:                   db,
+		redis:                redisClient,
+		notificationService:  &ConsoleNotificationService{},
+		notificationProvider: &ConsoleNotificationProvider{},
+	}
+
 	// Start background telemetry archiver worker
 	archiver := NewTelemetryArchiver(db, redisClient, storage)
 	go func() {
@@ -88,12 +97,17 @@ func New(ctx context.Context) (*API, error) {
 		}
 	}()
 
-	return &API{
-		storage:             storage,
-		db:                  db,
-		redis:               redisClient,
-		notificationService: &ConsoleNotificationService{},
-	}, nil
+	// Start background outbox notification worker
+	go func() {
+		ticker := time.NewTicker(2 * time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			_ = apiServer.RunNotificationWorkerOnce(context.Background())
+		}
+	}()
+
+	return apiServer, nil
 }
 
 // Close releases the API's database and Redis connections.
@@ -141,6 +155,10 @@ func (a *API) Router() http.Handler {
 			r.Post("/sos/incidents/{incidentId}/all-clear", a.PostSOSAllClearHandler)
 			r.Post("/vitals", a.VitalsPostHandler)
 			
+			// Notification Endpoints
+			r.Put("/notification-endpoints/{endpointId}", a.PutNotificationEndpointHandler)
+			r.Delete("/notification-endpoints/{endpointId}", a.DeleteNotificationEndpointHandler)
+
 			// Emergency Access
 			r.Post("/emergency-access/tokens", a.PostEmergencyAccessTokenHandler)
 			r.Post("/emergency-access/redeem", a.PostEmergencyAccessRedeemHandler)

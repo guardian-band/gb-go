@@ -41,8 +41,7 @@ func TestPostSOSIncidentSuccess(t *testing.T) {
 	}
 	defer db.Close()
 
-	ns := &mockNotificationService{}
-	a := &API{db: db, notificationService: ns}
+	a := &API{db: db}
 	userID := "user-uuid-123"
 
 	lat := 41.0082
@@ -61,20 +60,31 @@ func TestPostSOSIncidentSuccess(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 	rec := httptest.NewRecorder()
 
+	mock.ExpectBegin()
+
 	mock.ExpectExec("INSERT INTO sos_incidents").
 		WithArgs(sqlmock.AnyArg(), userID, "active", lat, lon, accuracy, address, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	mock.ExpectQuery("SELECT display_name, phone FROM patient_links").
+	mock.ExpectQuery("SELECT display_name, COALESCE\\(phone, ''\\), linked_user_id FROM patient_links").
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone"}).
-			AddRow("Ahmet Veli", "+905551111111").
-			AddRow("Ayşe Yılmaz", "+905552222222"))
+		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone", "linked_user_id"}).
+			AddRow("Ahmet Veli", "+905551111111", nil))
+
+	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM notification_outbox").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	mock.ExpectExec("INSERT INTO notification_outbox").
+		WithArgs(sqlmock.AnyArg(), "sos", sqlmock.AnyArg(), nil, "+905551111111", "sms", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	mock.ExpectCommit()
 
 	a.PostSOSIncidentHandler(rec, req)
 
 	if rec.Code != http.StatusCreated {
-		t.Errorf("expected status 201, got %d", rec.Code)
+		t.Errorf("expected status 201, got %d, body: %s", rec.Code, rec.Body.String())
 	}
 
 	var resp SOSIncidentResponse
@@ -84,16 +94,6 @@ func TestPostSOSIncidentSuccess(t *testing.T) {
 
 	if resp.Status != "active" || *resp.Latitude != lat {
 		t.Errorf("unexpected incident details: %+v", resp)
-	}
-
-	// Give goroutine a moment to run SendSOSAlert
-	time.Sleep(10 * time.Millisecond)
-
-	if !ns.sosCalled {
-		t.Error("expected notification service SendSOSAlert to be called")
-	}
-	if ns.recipientCount != 2 {
-		t.Errorf("expected 2 emergency contacts notified, got %d", ns.recipientCount)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -138,8 +138,7 @@ func TestPostSOSAllClearSuccess(t *testing.T) {
 	}
 	defer db.Close()
 
-	ns := &mockNotificationService{}
-	a := &API{db: db, notificationService: ns}
+	a := &API{db: db}
 	userID := "user-uuid-123"
 	incidentID := "incident-uuid-abc"
 
@@ -157,29 +156,31 @@ func TestPostSOSAllClearSuccess(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "status", "all_clear_at"}).
 			AddRow(userID, "active", nil))
 
+	mock.ExpectBegin()
+
 	mock.ExpectExec("UPDATE sos_incidents SET all_clear_at = \\$2 WHERE id = \\$1").
 		WithArgs(incidentID, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	mock.ExpectQuery("SELECT display_name, phone FROM patient_links").
+	mock.ExpectQuery("SELECT display_name, COALESCE\\(phone, ''\\), linked_user_id FROM patient_links").
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone"}).
-			AddRow("Ahmet Veli", "+905551111111"))
+		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone", "linked_user_id"}).
+			AddRow("Ahmet Veli", "+905551111111", nil))
+
+	mock.ExpectQuery("SELECT EXISTS\\(SELECT 1 FROM notification_outbox").
+		WithArgs(sqlmock.AnyArg()).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+
+	mock.ExpectExec("INSERT INTO notification_outbox").
+		WithArgs(sqlmock.AnyArg(), "all_clear", sqlmock.AnyArg(), nil, "+905551111111", "sms", sqlmock.AnyArg(), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	mock.ExpectCommit()
 
 	a.PostSOSAllClearHandler(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d, body: %s", rec.Code, rec.Body.String())
-	}
-
-	// Give goroutine a moment to run SendAllClearAlert
-	time.Sleep(10 * time.Millisecond)
-
-	if !ns.allClearCalled {
-		t.Error("expected notification service SendAllClearAlert to be called")
-	}
-	if ns.recipientCount != 1 {
-		t.Errorf("expected 1 emergency contact notified, got %d", ns.recipientCount)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -194,8 +195,7 @@ func TestPostSOSAllClearIdempotent(t *testing.T) {
 	}
 	defer db.Close()
 
-	ns := &mockNotificationService{}
-	a := &API{db: db, notificationService: ns}
+	a := &API{db: db}
 	userID := "user-uuid-123"
 	incidentID := "incident-uuid-abc"
 
@@ -210,7 +210,6 @@ func TestPostSOSAllClearIdempotent(t *testing.T) {
 
 	alreadyClearedAt := time.Now().Add(-10 * time.Second)
 
-	// Since it's already cleared, the handler should just return OK without database updates or notification calls
 	mock.ExpectQuery("^SELECT patient_id, status, all_clear_at FROM sos_incidents WHERE id = \\$1").
 		WithArgs(incidentID).
 		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "status", "all_clear_at"}).
@@ -220,13 +219,6 @@ func TestPostSOSAllClearIdempotent(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d", rec.Code)
-	}
-
-	// Give goroutine a moment just in case
-	time.Sleep(10 * time.Millisecond)
-
-	if ns.allClearCalled {
-		t.Error("expected notification service SendAllClearAlert NOT to be called (idempotency check)")
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

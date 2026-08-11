@@ -566,6 +566,92 @@ paths:
         '500':
           description: Internal server error
 
+  /api/notification-endpoints/{endpointId}:
+    put:
+      summary: Register or update a notification endpoint
+      operationId: putNotificationEndpoint
+      tags:
+        - Notifications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: endpointId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - channel
+                - token
+              properties:
+                channel:
+                  type: string
+                  enum: [push, sms]
+                  example: "push"
+                token:
+                  type: string
+                  example: "device-token-123"
+      responses:
+        '200':
+          description: Notification endpoint successfully registered or updated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  channel:
+                    type: string
+                  token:
+                    type: string
+                  active:
+                    type: boolean
+                  updatedAt:
+                    type: string
+                    format: date-time
+        '400':
+          description: Invalid request parameters or body
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - endpoint belongs to another user
+        '500':
+          description: Internal server error
+    delete:
+      summary: Remove a notification endpoint registration
+      operationId: deleteNotificationEndpoint
+      tags:
+        - Notifications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: endpointId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Notification endpoint successfully deleted
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - endpoint belongs to another user
+        '404':
+          description: Notification endpoint not found
+        '500':
+          description: Internal server error
+
   /api/emergency-access/tokens:
     post:
       summary: Generate a short-lived QR access token for the patient
