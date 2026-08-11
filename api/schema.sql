@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS patient_profiles (
     avatar_object_key TEXT,
     band_identifier VARCHAR(128) UNIQUE,
     qr_token_hash TEXT UNIQUE,
+    qr_token_expires_at TIMESTAMP WITH TIME ZONE,
     band_last_seen_at TIMESTAMP WITH TIME ZONE,
     last_latitude DECIMAL(9, 6),
     last_longitude DECIMAL(9, 6),

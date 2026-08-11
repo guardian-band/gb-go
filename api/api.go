@@ -141,6 +141,12 @@ func (a *API) Router() http.Handler {
 			r.Post("/sos/incidents/{incidentId}/all-clear", a.PostSOSAllClearHandler)
 			r.Post("/vitals", a.VitalsPostHandler)
 			
+			// Emergency Access
+			r.Post("/emergency-access/tokens", a.PostEmergencyAccessTokenHandler)
+			r.Post("/emergency-access/redeem", a.PostEmergencyAccessRedeemHandler)
+			r.Get("/emergency-access/sessions/{sessionId}/medical-card", a.GetEmergencyAccessMedicalCardHandler)
+			r.Delete("/emergency-access/sessions/{sessionId}", a.DeleteEmergencyAccessSessionHandler)
+
 			// Patient Links
 			r.Get("/patient-links", a.GetPatientLinksHandler)
 			r.Post("/patient-links", a.PostPatientLinkHandler)
