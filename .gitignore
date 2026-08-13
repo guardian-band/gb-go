@@ -1,3 +1,5 @@
 notes/
 AGENTS.md
 .DS_STORE
+tmp/
+output/
