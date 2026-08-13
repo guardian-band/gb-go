@@ -66,7 +66,7 @@ func TestPostSOSIncidentSuccess(t *testing.T) {
 		WithArgs(sqlmock.AnyArg(), userID, "active", lat, lon, accuracy, address, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	mock.ExpectQuery("SELECT display_name, COALESCE\\(phone, ''\\), linked_user_id FROM patient_links").
+	mock.ExpectQuery("(?s)SELECT display_name, phone, NULL::uuid AS linked_user_id.*patient_relationships.*pr\\.active = TRUE.*pr\\.revoked_at IS NULL").
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone", "linked_user_id"}).
 			AddRow("Ahmet Veli", "+905551111111", nil))
@@ -162,7 +162,7 @@ func TestPostSOSAllClearSuccess(t *testing.T) {
 		WithArgs(incidentID, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
-	mock.ExpectQuery("SELECT display_name, COALESCE\\(phone, ''\\), linked_user_id FROM patient_links").
+	mock.ExpectQuery("(?s)SELECT display_name, phone, NULL::uuid AS linked_user_id.*patient_relationships.*pr\\.active = TRUE.*pr\\.revoked_at IS NULL").
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone", "linked_user_id"}).
 			AddRow("Ahmet Veli", "+905551111111", nil))

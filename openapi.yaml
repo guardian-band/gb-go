@@ -786,75 +786,179 @@ paths:
         '500':
           description: Internal server error
 
-  /api/patient-links:
-    get:
-      summary: Get patient links
-      security:
-        - bearerAuth: []
-      responses:
-        '200':
-          description: OK
+  /api/patient-link-invitations:
     post:
-      summary: Create patient link
+      summary: Create a patient-approved monitoring invitation
       security:
-        - bearerAuth: []
+        - BearerAuth: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                phone:
-                  type: string
-                displayName:
-                  type: string
-                relationship:
-                  type: string
-                kind:
-                  type: string
-                canMonitor:
-                  type: boolean
-                isEmergencyContact:
-                  type: boolean
-                isPrimary:
-                  type: boolean
+              $ref: '#/components/schemas/CreateMonitoringInvitationRequest'
       responses:
         '201':
-          description: Created
+          description: Invitation created; the opaque token is returned once
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringInvitationResponse'
         '400':
-          description: Bad Request
-        '403':
-          description: Forbidden
-        '409':
-          description: Conflict
-  /api/patient-links/{linkId}:
-    patch:
-      summary: Update patient link
+          description: Invalid invitation options
+        '401':
+          description: Missing, invalid, or expired JWT token
+
+  /api/patient-link-invitations/redeem:
+    post:
+      summary: Redeem a single-use monitoring invitation
       security:
-        - bearerAuth: []
-      parameters:
-        - name: linkId
-          in: path
-          required: true
-          schema:
-            type: string
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RedeemMonitoringInvitationRequest'
+      responses:
+        '201':
+          description: Relationship created or reactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MonitoringRelationshipResponse'
+        '400':
+          description: Invalid, expired, used, or self-link invitation
+        '401':
+          description: Missing, invalid, or expired JWT token
+
+  /api/monitoring/patients:
+    get:
+      summary: List patients explicitly approved for monitoring
+      security:
+        - BearerAuth: []
       responses:
         '200':
-          description: OK
-    delete:
-      summary: Delete patient link
+          description: Active can-monitor relationships for the authenticated member
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MonitoringPatient'
+        '401':
+          description: Missing, invalid, or expired JWT token
+
+  /api/patient-relationships:
+    get:
+      summary: List registered relationships owned by the authenticated patient
       security:
-        - bearerAuth: []
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Patient-owned registered relationships
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PatientRelationship'
+        '401':
+          description: Missing, invalid, or expired JWT token
+
+  /api/patient-relationships/{relationshipId}:
+    delete:
+      summary: Revoke a monitoring relationship owned by the patient
+      security:
+        - BearerAuth: []
       parameters:
-        - name: linkId
+        - name: relationshipId
           in: path
           required: true
           schema:
             type: string
+            format: uuid
       responses:
         '204':
-          description: No Content
+          description: Relationship revoked
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '404':
+          description: Relationship not found for this patient
+
+  /api/emergency-contacts:
+    get:
+      summary: List external emergency contacts
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: External contacts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EmergencyContact'
+    post:
+      summary: Create an external emergency contact
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyContactRequest'
+      responses:
+        '201':
+          description: Contact created
+        '400':
+          description: Invalid contact
+        '409':
+          description: Contact already exists
+
+  /api/emergency-contacts/{contactId}:
+    patch:
+      summary: Update an external emergency contact
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyContactPatch'
+      responses:
+        '200':
+          description: Contact updated
+        '404':
+          description: Contact not found for this patient
+        '409':
+          description: Another contact already uses this phone number
+    delete:
+      summary: Delete an external emergency contact
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Contact deleted
+        '404':
+          description: Contact not found for this patient
 
 components:
   securitySchemes:
@@ -910,6 +1014,9 @@ components:
           format: password
           minLength: 8
           example: secure-password
+        displayName:
+          type: string
+          maxLength: 200
 
     RegisterResponse:
       type: object
@@ -921,6 +1028,160 @@ components:
           type: string
         phoneNumber:
           type: string
+        displayName:
+          type: string
+
+    CreateMonitoringInvitationRequest:
+      type: object
+      required: [relationship, kind, canMonitor]
+      properties:
+        relationship:
+          type: string
+        kind:
+          type: string
+          enum: [family, clinician, other]
+        canMonitor:
+          type: boolean
+          enum: [true]
+        isEmergencyContact:
+          type: boolean
+          default: false
+        expiresInSeconds:
+          type: integer
+          minimum: 1
+          maximum: 3600
+
+    MonitoringInvitationResponse:
+      type: object
+      required: [token, expiresAt]
+      properties:
+        token:
+          type: string
+          description: Opaque single-use invitation token; shown only at creation.
+        expiresAt:
+          type: string
+          format: date-time
+
+    RedeemMonitoringInvitationRequest:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+
+    MonitoringRelationshipResponse:
+      type: object
+      required: [id, patientId, memberUserId, relationship, kind, canMonitor, isEmergencyContact]
+      properties:
+        id:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        memberUserId:
+          type: string
+          format: uuid
+        relationship:
+          type: string
+        kind:
+          type: string
+          enum: [family, clinician, other]
+        canMonitor:
+          type: boolean
+        isEmergencyContact:
+          type: boolean
+
+    MonitoringPatient:
+      type: object
+      required: [id, patientId, displayName, relationship, bloodType, birthDate]
+      properties:
+        id:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        displayName:
+          type: string
+        name:
+          type: string
+        relationship:
+          type: string
+        bloodType:
+          type: string
+        birthDate:
+          type: string
+          format: date
+
+    EmergencyContactRequest:
+      type: object
+      required: [displayName, phone, relationship]
+      properties:
+        displayName:
+          type: string
+        phone:
+          type: string
+        relationship:
+          type: string
+        isPrimary:
+          type: boolean
+
+    EmergencyContact:
+      allOf:
+        - $ref: '#/components/schemas/EmergencyContactRequest'
+        - type: object
+          required: [id]
+          properties:
+            id:
+              type: string
+              format: uuid
+
+    EmergencyContactPatch:
+      type: object
+      properties:
+        displayName:
+          type: string
+          maxLength: 200
+        phone:
+          type: string
+          maxLength: 32
+        relationship:
+          type: string
+          maxLength: 64
+        isPrimary:
+          type: boolean
+
+    PatientRelationship:
+      type: object
+      required: [id, memberUserId, memberDisplayName, relationship, kind, canMonitor, isEmergencyContact, active, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        memberUserId:
+          type: string
+          format: uuid
+        memberDisplayName:
+          type: string
+        relationship:
+          type: string
+        kind:
+          type: string
+          enum: [family, clinician, other]
+        canMonitor:
+          type: boolean
+        isEmergencyContact:
+          type: boolean
+        active:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        revokedAt:
+          type: string
+          format: date-time
+          nullable: true
 
     VitalPacket:
       type: object
@@ -1212,6 +1473,3 @@ components:
         recordedAt:
           type: string
           format: date-time
-
-
-

@@ -35,10 +35,17 @@ type SOSIncidentResponse struct {
 // createOutboxEntries creates outbox records for a given patient's emergency contacts inside a transaction.
 func createOutboxEntries(ctx context.Context, tx *sql.Tx, patientID string, incidentID string, eventType string, message string) error {
 	rows, err := tx.QueryContext(ctx, `
-		SELECT display_name, COALESCE(phone, ''), linked_user_id 
-		FROM patient_links 
-		WHERE patient_id = $1 AND is_emergency_contact = true`,
-		patientID)
+		SELECT display_name, phone, NULL::uuid AS linked_user_id
+		FROM emergency_contacts
+		WHERE patient_id = $1
+		UNION ALL
+		SELECT COALESCE(u.display_name, ''), u.phone_number, pr.member_user_id
+		FROM patient_relationships pr
+		JOIN users u ON u.id = pr.member_user_id
+		WHERE pr.patient_id = $1
+		  AND pr.is_emergency_contact = TRUE
+		  AND pr.active = TRUE
+		  AND pr.revoked_at IS NULL`, patientID)
 	if err != nil {
 		return fmt.Errorf("query emergency contacts: %w", err)
 	}
@@ -95,7 +102,7 @@ func createOutboxEntries(ctx context.Context, tx *sql.Tx, patientID string, inci
 			// Write outbox entry for each registered endpoint
 			for _, ep := range endpoints {
 				idempotencyKey := fmt.Sprintf("%s:%s:%s", incidentID, eventType, ep.token)
-				
+
 				var exists bool
 				err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE idempotency_key = $1)", idempotencyKey).Scan(&exists)
 				if err != nil {
@@ -117,7 +124,7 @@ func createOutboxEntries(ctx context.Context, tx *sql.Tx, patientID string, inci
 		} else if c.phone != "" {
 			// Fallback: Write SMS outbox entry
 			idempotencyKey := fmt.Sprintf("%s:%s:%s", incidentID, eventType, c.phone)
-			
+
 			var exists bool
 			err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM notification_outbox WHERE idempotency_key = $1)", idempotencyKey).Scan(&exists)
 			if err != nil {

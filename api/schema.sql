@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY,
     phone_number VARCHAR(32) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
+    display_name VARCHAR(200),
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -28,26 +29,56 @@ CREATE TABLE IF NOT EXISTS patient_profiles (
         CHECK (last_location_accuracy IS NULL OR last_location_accuracy >= 0)
 );
 
-CREATE TABLE IF NOT EXISTS patient_links (
+CREATE TABLE IF NOT EXISTS patient_relationships (
     id UUID PRIMARY KEY,
     patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
-    linked_user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    display_name VARCHAR(200),
-    phone VARCHAR(32),
+    member_user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     relationship VARCHAR(64) NOT NULL,
     kind VARCHAR(32) NOT NULL,
     can_monitor BOOLEAN NOT NULL DEFAULT FALSE,
     is_emergency_contact BOOLEAN NOT NULL DEFAULT FALSE,
-    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
-    CONSTRAINT patient_links_kind_valid
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT patient_relationships_kind_valid
         CHECK (kind IN ('family', 'clinician', 'other')),
-    CONSTRAINT patient_links_identity_present
-        CHECK (
-            linked_user_id IS NOT NULL
-            OR (display_name IS NOT NULL AND phone IS NOT NULL)
-        ),
-    CONSTRAINT patient_links_not_self
-        CHECK (linked_user_id IS NULL OR linked_user_id <> patient_id)
+    CONSTRAINT patient_relationships_not_self
+        CHECK (member_user_id <> patient_id),
+    CONSTRAINT patient_relationships_revocation_valid
+        CHECK ((active AND revoked_at IS NULL) OR (NOT active AND revoked_at IS NOT NULL)),
+    CONSTRAINT patient_relationships_unique_member
+        UNIQUE (patient_id, member_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_patient_relationships_member_active
+    ON patient_relationships(member_user_id, active, can_monitor);
+
+CREATE TABLE IF NOT EXISTS emergency_contacts (
+    id UUID PRIMARY KEY,
+    patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
+    display_name VARCHAR(200) NOT NULL,
+    phone VARCHAR(32) NOT NULL,
+    relationship VARCHAR(64) NOT NULL,
+    is_primary BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT emergency_contacts_unique_phone UNIQUE (patient_id, phone)
+);
+
+CREATE TABLE IF NOT EXISTS patient_link_invitations (
+    id UUID PRIMARY KEY,
+    patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
+    token_hash CHAR(64) UNIQUE NOT NULL,
+    relationship VARCHAR(64) NOT NULL,
+    kind VARCHAR(32) NOT NULL,
+    can_monitor BOOLEAN NOT NULL DEFAULT TRUE,
+    is_emergency_contact BOOLEAN NOT NULL DEFAULT FALSE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    redeemed_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT patient_link_invitations_kind_valid
+        CHECK (kind IN ('family', 'clinician', 'other')),
+    CONSTRAINT patient_link_invitations_expiry_valid
+        CHECK (expires_at > created_at)
 );
 
 CREATE TABLE IF NOT EXISTS documents (

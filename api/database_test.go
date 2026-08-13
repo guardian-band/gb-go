@@ -9,7 +9,9 @@ func TestDatabaseSchemaContainsDesignedTables(t *testing.T) {
 	tables := []string{
 		"users",
 		"patient_profiles",
-		"patient_links",
+		"patient_relationships",
+		"emergency_contacts",
+		"patient_link_invitations",
 		"documents",
 		"medications",
 		"medication_events",

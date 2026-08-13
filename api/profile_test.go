@@ -37,6 +37,8 @@ func TestGetProfileSuccess(t *testing.T) {
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"birth_date", "blood_type", "critical_facts", "timezone"}).
 			AddRow(expectedBirthDate, expectedBloodType, []byte(expectedCriticalFacts), expectedTimezone))
+	mock.ExpectQuery("^SELECT display_name FROM users WHERE id = \\$1$").
+		WithArgs(userID).WillReturnRows(sqlmock.NewRows([]string{"display_name"}).AddRow("Ada"))
 
 	a.GetProfileHandler(rec, req)
 
@@ -51,6 +53,9 @@ func TestGetProfileSuccess(t *testing.T) {
 
 	if resp.BirthDate != "1995-04-12" || resp.BloodType != expectedBloodType || resp.Timezone != expectedTimezone {
 		t.Errorf("unexpected response data: %+v", resp)
+	}
+	if resp.DisplayName != "Ada" {
+		t.Errorf("expected display name Ada, got %q", resp.DisplayName)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {
@@ -193,5 +198,43 @@ func TestPutProfileInvalidData(t *testing.T) {
 
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestPutProfileDisplayNameUpdateRollsBackProfile(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	a := &API{db: db}
+	userID := "user-uuid-123"
+	reqBody := PatientProfile{
+		DisplayName:   "Ada",
+		BirthDate:     "1995-04-12",
+		BloodType:     "A+",
+		CriticalFacts: json.RawMessage(`{}`),
+		Timezone:      "Europe/Istanbul",
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPut, "/api/profile", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+	mock.ExpectBegin()
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1$").
+		WithArgs(userID).WillReturnError(sql.ErrNoRows)
+	parsedTime, _ := time.Parse("2006-01-02", reqBody.BirthDate)
+	mock.ExpectExec("INSERT INTO patient_profiles").
+		WithArgs(userID, parsedTime, reqBody.BloodType, []byte(reqBody.CriticalFacts), reqBody.Timezone).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("^UPDATE users SET display_name = \\$1 WHERE id = \\$2$").
+		WithArgs("Ada", userID).WillReturnError(sql.ErrConnDone)
+	mock.ExpectRollback()
+	rec := httptest.NewRecorder()
+	a.PutProfileHandler(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -142,13 +142,7 @@ func (a *API) VitalsGetLatestHandler(w http.ResponseWriter, r *http.Request) {
 
 	// 1. Authorization checks
 	if userID != authenticatedUserID {
-		var isAuthorized bool
-		err := a.db.QueryRowContext(r.Context(), `
-			SELECT EXISTS(
-				SELECT 1 FROM patient_links
-				WHERE patient_id = $1 AND linked_user_id = $2 AND can_monitor = true
-			)
-		`, userID, authenticatedUserID).Scan(&isAuthorized)
+		isAuthorized, err := a.hasMonitoringRelationship(r.Context(), userID, authenticatedUserID)
 		if err != nil {
 			http.Error(w, "database query error", http.StatusInternalServerError)
 			return

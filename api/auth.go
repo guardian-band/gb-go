@@ -40,11 +40,13 @@ type AuthResponse struct {
 type RegisterRequest struct {
 	PhoneNumber string `json:"phoneNumber"`
 	Password    string `json:"password"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 type RegisterResponse struct {
 	ID          string `json:"id"`
 	PhoneNumber string `json:"phoneNumber"`
+	DisplayName string `json:"displayName,omitempty"`
 }
 
 // GenerateToken creates a signed JWT containing the user's UUID in the sub claim.
@@ -127,6 +129,11 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "password must be at least 8 characters long", http.StatusBadRequest)
 		return
 	}
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if len(req.DisplayName) > 200 {
+		http.Error(w, "displayName is too long", http.StatusBadRequest)
+		return
+	}
 
 	// Check if the user already exists in database
 	var existingID string
@@ -147,9 +154,17 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 	userID := uuid.New().String()
 
 	// Insert user record into the database
-	_, err = a.db.ExecContext(r.Context(), 
-		"INSERT INTO users (id, phone_number, password_hash, created_at) VALUES ($1, $2, $3, $4)",
-		userID, req.PhoneNumber, hash, time.Now())
+	var insertQuery string
+	var insertArgs []interface{}
+	if req.DisplayName == "" {
+		// Keep the compact form for clients that do not provide basic identity.
+		insertQuery = "INSERT INTO users (id, phone_number, password_hash, created_at) VALUES ($1, $2, $3, $4)"
+		insertArgs = []interface{}{userID, req.PhoneNumber, hash, time.Now()}
+	} else {
+		insertQuery = "INSERT INTO users (id, phone_number, password_hash, created_at, display_name) VALUES ($1, $2, $3, $4, $5)"
+		insertArgs = []interface{}{userID, req.PhoneNumber, hash, time.Now(), req.DisplayName}
+	}
+	_, err = a.db.ExecContext(r.Context(), insertQuery, insertArgs...)
 	if err != nil {
 		// Log or check duplicate key error code just in case of race conditions
 		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
@@ -165,6 +180,7 @@ func (a *API) Register(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(RegisterResponse{
 		ID:          userID,
 		PhoneNumber: req.PhoneNumber,
+		DisplayName: req.DisplayName,
 	})
 }
 
@@ -185,8 +201,8 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	var passwordHash string
 
 	// Query database for user credentials
-	err := a.db.QueryRowContext(r.Context(), 
-		"SELECT id, password_hash FROM users WHERE phone_number = $1", 
+	err := a.db.QueryRowContext(r.Context(),
+		"SELECT id, password_hash FROM users WHERE phone_number = $1",
 		req.PhoneNumber).Scan(&userID, &passwordHash)
 	if err == sql.ErrNoRows {
 		http.Error(w, "invalid credentials", http.StatusUnauthorized)

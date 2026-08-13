@@ -138,7 +138,7 @@ func (a *API) Router() http.Handler {
 		r.Group(func(r chi.Router) {
 			r.Use(AuthenticateMiddleware)
 			r.Get("/vitals/{userId}/latest", a.VitalsGetLatestHandler)
-			
+
 			r.Post("/upload", a.UploadHandler)
 			r.Get("/profile", a.GetProfileHandler)
 			r.Put("/profile", a.PutProfileHandler)
@@ -154,7 +154,7 @@ func (a *API) Router() http.Handler {
 			r.Post("/sos/incidents", a.PostSOSIncidentHandler)
 			r.Post("/sos/incidents/{incidentId}/all-clear", a.PostSOSAllClearHandler)
 			r.Post("/vitals", a.VitalsPostHandler)
-			
+
 			// Notification Endpoints
 			r.Put("/notification-endpoints/{endpointId}", a.PutNotificationEndpointHandler)
 			r.Delete("/notification-endpoints/{endpointId}", a.DeleteNotificationEndpointHandler)
@@ -165,11 +165,19 @@ func (a *API) Router() http.Handler {
 			r.Get("/emergency-access/sessions/{sessionId}/medical-card", a.GetEmergencyAccessMedicalCardHandler)
 			r.Delete("/emergency-access/sessions/{sessionId}", a.DeleteEmergencyAccessSessionHandler)
 
-			// Patient Links
-			r.Get("/patient-links", a.GetPatientLinksHandler)
-			r.Post("/patient-links", a.PostPatientLinkHandler)
-			r.Patch("/patient-links/{linkId}", a.PatchPatientLinkHandler)
-			r.Delete("/patient-links/{linkId}", a.DeletePatientLinkHandler)
+			// Patient-approved monitoring relationships and invitations.
+			r.Get("/monitoring/patients", a.GetMonitoringPatientsHandler)
+			r.Get("/patient-relationships", a.GetPatientRelationshipsHandler)
+			r.Post("/patient-link-invitations", a.CreateMonitoringInvitationHandler)
+			r.Post("/patient-link-invitations/redeem", a.RedeemMonitoringInvitationHandler)
+			r.Delete("/patient-relationships/{relationshipId}", a.RevokeMonitoringRelationshipHandler)
+
+			// External emergency contacts are deliberately separate from registered
+			// monitoring relationships and never grant patient-data access.
+			r.Get("/emergency-contacts", a.GetEmergencyContactsHandler)
+			r.Post("/emergency-contacts", a.PostEmergencyContactHandler)
+			r.Patch("/emergency-contacts/{contactId}", a.PatchEmergencyContactHandler)
+			r.Delete("/emergency-contacts/{contactId}", a.DeleteEmergencyContactHandler)
 			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("Access granted to protected endpoint!"))
 			})

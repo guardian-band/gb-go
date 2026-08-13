@@ -3,13 +3,16 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 	_ "time/tzdata"
 )
 
 // PatientProfile represents the medical profile of a patient.
 type PatientProfile struct {
+	DisplayName   string          `json:"displayName,omitempty"`
 	BirthDate     string          `json:"birthDate"`
 	BloodType     string          `json:"bloodType"`
 	CriticalFacts json.RawMessage `json:"criticalFacts"`
@@ -55,6 +58,15 @@ func (a *API) GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 	profile := PatientProfile{
 		CriticalFacts: json.RawMessage(criticalFacts),
 		Timezone:      timezone,
+	}
+	// Basic identity lives on users; failure to read the optional field must not
+	// make an otherwise valid medical profile unavailable.
+	var displayName sql.NullString
+	if err := a.db.QueryRowContext(r.Context(), "SELECT display_name FROM users WHERE id = $1", userID).Scan(&displayName); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "failed to query user identity: "+err.Error(), http.StatusInternalServerError)
+		return
+	} else if displayName.Valid {
+		profile.DisplayName = displayName.String
 	}
 
 	if birthDate.Valid {
@@ -113,6 +125,47 @@ func (a *API) PutProfileHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid criticalFacts JSON", http.StatusBadRequest)
 		return
 	}
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if len(req.DisplayName) > 200 {
+		http.Error(w, "displayName is too long", http.StatusBadRequest)
+		return
+	}
+	if req.DisplayName != "" {
+		tx, err := a.db.BeginTx(r.Context(), nil)
+		if err != nil {
+			http.Error(w, "failed to start profile update: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		defer tx.Rollback()
+		var exists int
+		err = tx.QueryRowContext(r.Context(), "SELECT 1 FROM patient_profiles WHERE user_id = $1", userID).Scan(&exists)
+		if errors.Is(err, sql.ErrNoRows) {
+			_, err = tx.ExecContext(r.Context(), `
+				INSERT INTO patient_profiles (user_id, birth_date, blood_type, critical_facts, timezone)
+				VALUES ($1, $2, $3, $4, $5)`,
+				userID, t, req.BloodType, req.CriticalFacts, req.Timezone)
+		} else if err == nil {
+			_, err = tx.ExecContext(r.Context(), `
+				UPDATE patient_profiles
+				SET birth_date = $1, blood_type = $2, critical_facts = $3, timezone = $4
+				WHERE user_id = $5`,
+				t, req.BloodType, req.CriticalFacts, req.Timezone, userID)
+		}
+		if err == nil {
+			_, err = tx.ExecContext(r.Context(), "UPDATE users SET display_name = $1 WHERE id = $2", req.DisplayName, userID)
+		}
+		if err == nil {
+			err = tx.Commit()
+		}
+		if err != nil {
+			http.Error(w, "failed to save profile: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(req)
+		return
+	}
 
 	// Check if profile already exists to handle upsert compatibly in openGauss
 	var exists int
@@ -137,7 +190,6 @@ func (a *API) PutProfileHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "failed to save profile: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(req)

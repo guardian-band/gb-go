@@ -195,7 +195,7 @@ func TestPostSOSIncidentTransactionalOutbox(t *testing.T) {
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	// 3. Query emergency contacts
-	mock.ExpectQuery("^SELECT display_name, COALESCE\\(phone, ''\\), linked_user_id FROM patient_links").
+	mock.ExpectQuery("(?s)SELECT display_name, phone, NULL::uuid AS linked_user_id.*patient_relationships.*pr\\.active = TRUE.*pr\\.revoked_at IS NULL").
 		WithArgs(userID).
 		WillReturnRows(sqlmock.NewRows([]string{"display_name", "phone", "linked_user_id"}).
 			AddRow("Mom", "+905550001122", linkedUser))
