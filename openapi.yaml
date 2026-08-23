@@ -1136,7 +1136,7 @@ components:
     UploadResponse:
       type: object
       properties:
-        file_key:
+        fileKey:
           type: string
           example: 4a2b9f80-1234-5678-9abc-def012345678.png
         message:
@@ -1414,6 +1414,7 @@ components:
           example: "1995-04-12"
         bloodType:
           type: string
+          enum: [A+, A-, B+, B-, AB+, AB-, O+, O-]
           example: "A+"
         criticalFacts:
           type: object
@@ -1637,6 +1638,7 @@ components:
           example: "1995-04-12"
         bloodType:
           type: string
+          enum: [A+, A-, B+, B-, AB+, AB-, O+, O-]
           example: "A+"
         criticalFacts:
           type: object
