@@ -167,6 +167,7 @@ func (a *API) Router() http.Handler {
 			r.Post("/emergency-access/redeem", a.PostEmergencyAccessRedeemHandler)
 			r.Get("/emergency-access/sessions/{sessionId}/medical-card", a.GetEmergencyAccessMedicalCardHandler)
 			r.Delete("/emergency-access/sessions/{sessionId}", a.DeleteEmergencyAccessSessionHandler)
+			r.Get("/emergency-access/audit-logs", a.GetEmergencyAccessAuditLogsHandler)
 
 			// Patient-approved monitoring relationships and invitations.
 			r.Get("/monitoring/patients", a.GetMonitoringPatientsHandler)

@@ -204,6 +204,10 @@ func TestGetEmergencyAccessMedicalCardSuccess(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "responder_id", "expires_at", "revoked_at"}).
 			AddRow(patientID, responderID, expiresAt, nil))
 
+	mock.ExpectExec("^INSERT INTO emergency_access_audit_logs").
+		WithArgs(sqlmock.AnyArg(), patientID, responderID, sessionID, true, "", sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
 	// 2. Patient profile lookup (now includes display_name and birth_date)
 	mock.ExpectQuery("SELECT COALESCE\\(u.display_name, ''\\), pp.birth_date, pp.blood_type, pp.critical_facts FROM patient_profiles pp").
 		WithArgs(patientID).
@@ -282,6 +286,10 @@ func TestGetEmergencyAccessMedicalCardForbidden(t *testing.T) {
 			WillReturnRows(sqlmock.NewRows([]string{"patient_id", "responder_id", "expires_at", "revoked_at"}).
 				AddRow(patientID, responderID, expiresAt, nil))
 
+		mock.ExpectExec("^INSERT INTO emergency_access_audit_logs").
+			WithArgs(sqlmock.AnyArg(), patientID, wrongResponderID, sessionID, false, "forbidden: responder mismatch", sqlmock.AnyArg()).
+			WillReturnResult(sqlmock.NewResult(1, 1))
+
 		a.GetEmergencyAccessMedicalCardHandler(rec, req)
 
 		if rec.Code != http.StatusForbidden {
@@ -306,6 +314,10 @@ func TestGetEmergencyAccessMedicalCardForbidden(t *testing.T) {
 			WithArgs(sessionID).
 			WillReturnRows(sqlmock.NewRows([]string{"patient_id", "responder_id", "expires_at", "revoked_at"}).
 				AddRow(patientID, responderID, expiresAt, revokedAt))
+
+		mock.ExpectExec("^INSERT INTO emergency_access_audit_logs").
+			WithArgs(sqlmock.AnyArg(), patientID, responderID, sessionID, false, "session revoked", sqlmock.AnyArg()).
+			WillReturnResult(sqlmock.NewResult(1, 1))
 
 		a.GetEmergencyAccessMedicalCardHandler(rec, req)
 
@@ -351,6 +363,51 @@ func TestDeleteEmergencyAccessSessionSuccess(t *testing.T) {
 
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations not met: %v", err)
+	}
+}
+
+func TestGetEmergencyAccessAuditLogs(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+	patientID := "patient-uuid-123"
+
+	req := httptest.NewRequest(http.MethodGet, "/api/emergency-access/audit-logs", nil)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, patientID))
+	rec := httptest.NewRecorder()
+
+	// Mock patient profile check
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(patientID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
+
+	// Mock audit log select query
+	mock.ExpectQuery("(?s)SELECT l.id, l.patient_id, l.responder_id,.*FROM emergency_access_audit_logs l").
+		WithArgs(patientID).
+		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "responder_id", "display_name", "phone_number", "session_id", "allowed", "reason", "created_at"}).
+			AddRow("log-1", patientID, "responder-1", "Responder Bob", "+905559990011", "session-1", true, "", time.Now()))
+
+	a.GetEmergencyAccessAuditLogsHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp []AuditLogEntry
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(resp) != 1 || resp[0].ResponderName != "Responder Bob" || !resp[0].Allowed {
+		t.Errorf("unexpected audit log output: %+v", resp)
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

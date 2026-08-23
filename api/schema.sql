@@ -245,4 +245,14 @@ CREATE TABLE IF NOT EXISTS notification_outbox (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS emergency_access_audit_logs (
+    id UUID PRIMARY KEY,
+    patient_id UUID REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
+    responder_id UUID REFERENCES users(id) ON DELETE CASCADE,
+    session_id UUID,
+    allowed BOOLEAN NOT NULL,
+    reason VARCHAR(255),
+    created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_outbox_status_next ON notification_outbox(status, next_attempt);
