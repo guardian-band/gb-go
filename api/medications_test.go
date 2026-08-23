@@ -87,6 +87,42 @@ func TestPostMedicationSuccess(t *testing.T) {
 	}
 }
 
+func TestPostMedicationSuccess8Hours(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+	userID := "user-uuid-123"
+
+	reqBody := CreateMedicationRequest{
+		Name:           "Parol",
+		Strength:       "500mg",
+		Instructions:   "Günde 3 kez",
+		FrequencyHours: 8,
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/medications", bytes.NewReader(bodyBytes))
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+	rec := httptest.NewRecorder()
+
+	mock.ExpectExec("INSERT INTO medications").
+		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	a.PostMedicationHandler(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Errorf("expected status 201 for 8 hours frequency, got %d", rec.Code)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
 func TestPostMedicationInvalidFrequency(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

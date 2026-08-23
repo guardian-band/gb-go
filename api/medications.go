@@ -105,8 +105,8 @@ func (a *API) PostMedicationHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.FrequencyHours != 6 && req.FrequencyHours != 12 && req.FrequencyHours != 24 {
-		http.Error(w, "invalid frequencyHours, must be 6, 12, or 24 hours", http.StatusBadRequest)
+	if req.FrequencyHours != 6 && req.FrequencyHours != 8 && req.FrequencyHours != 12 && req.FrequencyHours != 24 {
+		http.Error(w, "invalid frequencyHours, must be 6, 8, 12, or 24 hours", http.StatusBadRequest)
 		return
 	}
 

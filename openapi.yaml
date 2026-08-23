@@ -1305,8 +1305,8 @@ components:
           example: "Günde 2 kez aç karnına"
         frequencyHours:
           type: integer
-          enum: [6, 12, 24]
-          example: 12
+          enum: [6, 8, 12, 24]
+          example: 8
         prescriptionDocumentId:
           type: string
           format: uuid
