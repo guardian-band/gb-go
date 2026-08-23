@@ -57,7 +57,9 @@ func (a *API) PostEmergencyAccessTokenHandler(w http.ResponseWriter, r *http.Req
 	var dummy string
 	err := a.db.QueryRowContext(r.Context(), "SELECT user_id FROM patient_profiles WHERE user_id = $1", userID).Scan(&dummy)
 	if err == sql.ErrNoRows {
-		http.Error(w, "patient profile not found", http.StatusNotFound)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"message": "patient profile not found"})
 		return
 	} else if err != nil {
 		http.Error(w, "database error: "+err.Error(), http.StatusInternalServerError)

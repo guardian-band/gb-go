@@ -145,6 +145,19 @@ func (a *API) PostDocumentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate patient profile exists
+	var exists int
+	err := a.db.QueryRowContext(r.Context(), "SELECT 1 FROM patient_profiles WHERE user_id = $1", userID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"message": "patient profile not found"})
+		return
+	} else if err != nil {
+		http.Error(w, "database query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	file, header, err := r.FormFile("file")
 	if err != nil {
 		http.Error(w, "missing file parameter 'file'", http.StatusBadRequest)

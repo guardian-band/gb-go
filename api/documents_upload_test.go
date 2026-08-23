@@ -172,6 +172,10 @@ func TestPostDocumentSuccess(t *testing.T) {
 	rec := httptest.NewRecorder()
 
 	// SQL Expectation
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
+
 	mock.ExpectExec("^INSERT INTO documents").
 		WithArgs(sqlmock.AnyArg(), userID, "report", "Blood Report", sqlmock.AnyArg(), "mock-version-v1", sqlmock.AnyArg(), "application/pdf", userID).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -222,6 +226,11 @@ func TestPostDocumentSQLFailureCleanup(t *testing.T) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 	rec := httptest.NewRecorder()
+
+	// SQL Expectation
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
 
 	// SQL failure
 	mock.ExpectExec("^INSERT INTO documents").

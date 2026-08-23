@@ -181,6 +181,10 @@ func TestEmergencyContactCreateUsesAuthenticatedPatientOnly(t *testing.T) {
 	body, _ := json.Marshal(EmergencyContactRequest{DisplayName: "Mom", Phone: "+905551111111", Relationship: "mother", IsPrimary: &primary})
 	req := httptest.NewRequest(http.MethodPost, "/api/emergency-contacts", bytes.NewReader(body))
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "patient-1"))
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs("patient-1").
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
+
 	mock.ExpectExec("^INSERT INTO emergency_contacts").
 		WithArgs(sqlmock.AnyArg(), "patient-1", "Mom", "+905551111111", "mother", true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -451,6 +455,42 @@ func TestRevokeMonitoringRelationshipRequiresPatientOwnership(t *testing.T) {
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d: %s", rec.Code, rec.Body.String())
 	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPostEmergencyContactProfileNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	a := &API{db: db}
+	primary := true
+	body, _ := json.Marshal(EmergencyContactRequest{DisplayName: "Mom", Phone: "+905551111111", Relationship: "mother", IsPrimary: &primary})
+	req := httptest.NewRequest(http.MethodPost, "/api/emergency-contacts", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "patient-1"))
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs("patient-1").
+		WillReturnError(sql.ErrNoRows)
+
+	rec := httptest.NewRecorder()
+	a.PostEmergencyContactHandler(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp["message"] != "patient profile not found" {
+		t.Errorf("expected 'patient profile not found', got %q", resp["message"])
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
