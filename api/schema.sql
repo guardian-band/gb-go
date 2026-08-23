@@ -6,6 +6,15 @@ CREATE TABLE IF NOT EXISTS users (
     created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS user_accounts (
+    user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    role VARCHAR(32) NOT NULL,
+    role_facts JSONB NOT NULL DEFAULT '{}'::JSONB,
+    updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT user_accounts_role_valid
+        CHECK (role IN ('patient', 'family', 'doctor'))
+);
+
 CREATE TABLE IF NOT EXISTS patient_profiles (
     user_id UUID PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     birth_date DATE,

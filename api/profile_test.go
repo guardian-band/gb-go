@@ -238,3 +238,51 @@ func TestPutProfileDisplayNameUpdateRollsBackProfile(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestGetAndPutUserAccount(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	a := &API{db: db}
+	userID := "user-uuid-123"
+
+	// 1. Test GET /api/account success
+	reqGet := httptest.NewRequest(http.MethodGet, "/api/account", nil)
+	reqGet = reqGet.WithContext(context.WithValue(reqGet.Context(), UserContextKey, userID))
+	mock.ExpectQuery("^SELECT role, role_facts FROM user_accounts WHERE user_id = \\$1$").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"role", "role_facts"}).
+			AddRow("doctor", []byte(`{"doctorHospital":"Acibadem"}`)))
+	recGet := httptest.NewRecorder()
+	a.GetAccountHandler(recGet, reqGet)
+	if recGet.Code != http.StatusOK {
+		t.Fatalf("expected 200 on GET, got %d: %s", recGet.Code, recGet.Body.String())
+	}
+	var gotAcc UserAccount
+	json.NewDecoder(recGet.Body).Decode(&gotAcc)
+	if gotAcc.Role != "doctor" {
+		t.Fatalf("expected role doctor, got %s", gotAcc.Role)
+	}
+
+	// 2. Test PUT /api/account success
+	reqAcc := UserAccount{Role: "doctor", RoleFacts: json.RawMessage(`{"doctorHospital":"Acibadem"}`)}
+	body, _ := json.Marshal(reqAcc)
+	reqPut := httptest.NewRequest(http.MethodPut, "/api/account", bytes.NewReader(body))
+	reqPut = reqPut.WithContext(context.WithValue(reqPut.Context(), UserContextKey, userID))
+	mock.ExpectQuery("^SELECT 1 FROM user_accounts WHERE user_id = \\$1$").
+		WithArgs(userID).WillReturnError(sql.ErrNoRows)
+	mock.ExpectExec("^INSERT INTO user_accounts").
+		WithArgs(userID, "doctor", []byte(`{"doctorHospital":"Acibadem"}`), sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	recPut := httptest.NewRecorder()
+	a.PutAccountHandler(recPut, reqPut)
+	if recPut.Code != http.StatusOK {
+		t.Fatalf("expected 200 on PUT, got %d: %s", recPut.Code, recPut.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -217,6 +217,54 @@ paths:
         '500':
           description: Internal server error
 
+  /api/account:
+    get:
+      summary: Retrieve the authenticated user's account role and facts
+      operationId: getAccount
+      tags:
+        - Account
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: User account successfully retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccount'
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '404':
+          description: User account not found
+        '500':
+          description: Internal server error
+    put:
+      summary: Create or update the authenticated user's account role and facts
+      operationId: putAccount
+      tags:
+        - Account
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserAccount'
+      responses:
+        '200':
+          description: User account successfully updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserAccount'
+        '400':
+          description: Invalid request body or role value
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '500':
+          description: Internal server error
+
   /api/documents:
     get:
       summary: Get the authenticated user's document catalog list
@@ -1215,6 +1263,23 @@ components:
         readingId:
           type: string
           example: "read-999"
+
+    UserAccount:
+      type: object
+      required:
+        - role
+      properties:
+        role:
+          type: string
+          enum: [patient, family, doctor]
+          example: "doctor"
+        roleFacts:
+          type: object
+          additionalProperties: true
+          example:
+            email: "dr@hastane.com"
+            doctorHospital: "Acibadem"
+            doctorSpecialty: "Cardiology"
 
     PatientProfile:
       type: object

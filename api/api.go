@@ -142,6 +142,8 @@ func (a *API) Router() http.Handler {
 			r.Post("/upload", a.UploadHandler)
 			r.Get("/profile", a.GetProfileHandler)
 			r.Put("/profile", a.PutProfileHandler)
+			r.Get("/account", a.GetAccountHandler)
+			r.Put("/account", a.PutAccountHandler)
 			r.Get("/documents", a.GetDocumentsHandler)
 			r.Post("/documents", a.PostDocumentHandler)
 			r.Get("/documents/{documentId}", a.GetDocumentDetailHandler)

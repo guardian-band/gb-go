@@ -12,6 +12,7 @@ func TestDatabaseSchemaContainsDesignedTables(t *testing.T) {
 		"patient_relationships",
 		"emergency_contacts",
 		"patient_link_invitations",
+		"user_accounts",
 		"documents",
 		"medications",
 		"medication_events",
