@@ -1329,6 +1329,10 @@ components:
         timezone:
           type: string
           example: "Europe/Istanbul"
+        bandIdentifier:
+          type: string
+          nullable: true
+          example: "GB-12345"
 
     DocumentCatalog:
       type: object

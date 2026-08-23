@@ -12,11 +12,12 @@ import (
 
 // PatientProfile represents the medical profile of a patient.
 type PatientProfile struct {
-	DisplayName   string          `json:"displayName,omitempty"`
-	BirthDate     string          `json:"birthDate"`
-	BloodType     string          `json:"bloodType"`
-	CriticalFacts json.RawMessage `json:"criticalFacts"`
-	Timezone      string          `json:"timezone"`
+	DisplayName    string          `json:"displayName,omitempty"`
+	BirthDate      string          `json:"birthDate"`
+	BloodType      string          `json:"bloodType"`
+	CriticalFacts  json.RawMessage `json:"criticalFacts"`
+	Timezone       string          `json:"timezone"`
+	BandIdentifier *string         `json:"bandIdentifier,omitempty"`
 }
 
 var validBloodTypes = map[string]bool{
@@ -42,10 +43,11 @@ func (a *API) GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 	var bloodType sql.NullString
 	var criticalFacts []byte
 	var timezone string
+	var bandIdentifier sql.NullString
 
 	err := a.db.QueryRowContext(r.Context(),
-		"SELECT birth_date, blood_type, critical_facts, timezone FROM patient_profiles WHERE user_id = $1",
-		userID).Scan(&birthDate, &bloodType, &criticalFacts, &timezone)
+		"SELECT birth_date, blood_type, critical_facts, timezone, band_identifier FROM patient_profiles WHERE user_id = $1",
+		userID).Scan(&birthDate, &bloodType, &criticalFacts, &timezone, &bandIdentifier)
 
 	if err == sql.ErrNoRows {
 		http.Error(w, "profile not found", http.StatusNotFound)
@@ -58,6 +60,9 @@ func (a *API) GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 	profile := PatientProfile{
 		CriticalFacts: json.RawMessage(criticalFacts),
 		Timezone:      timezone,
+	}
+	if bandIdentifier.Valid {
+		profile.BandIdentifier = &bandIdentifier.String
 	}
 	// Basic identity lives on users; failure to read the optional field must not
 	// make an otherwise valid medical profile unavailable.
@@ -141,15 +146,15 @@ func (a *API) PutProfileHandler(w http.ResponseWriter, r *http.Request) {
 		err = tx.QueryRowContext(r.Context(), "SELECT 1 FROM patient_profiles WHERE user_id = $1", userID).Scan(&exists)
 		if errors.Is(err, sql.ErrNoRows) {
 			_, err = tx.ExecContext(r.Context(), `
-				INSERT INTO patient_profiles (user_id, birth_date, blood_type, critical_facts, timezone)
-				VALUES ($1, $2, $3, $4, $5)`,
-				userID, t, req.BloodType, req.CriticalFacts, req.Timezone)
+				INSERT INTO patient_profiles (user_id, birth_date, blood_type, critical_facts, timezone, band_identifier)
+				VALUES ($1, $2, $3, $4, $5, $6)`,
+				userID, t, req.BloodType, req.CriticalFacts, req.Timezone, req.BandIdentifier)
 		} else if err == nil {
 			_, err = tx.ExecContext(r.Context(), `
 				UPDATE patient_profiles
-				SET birth_date = $1, blood_type = $2, critical_facts = $3, timezone = $4
-				WHERE user_id = $5`,
-				t, req.BloodType, req.CriticalFacts, req.Timezone, userID)
+				SET birth_date = $1, blood_type = $2, critical_facts = $3, timezone = $4, band_identifier = $5
+				WHERE user_id = $6`,
+				t, req.BloodType, req.CriticalFacts, req.Timezone, req.BandIdentifier, userID)
 		}
 		if err == nil {
 			_, err = tx.ExecContext(r.Context(), "UPDATE users SET display_name = $1 WHERE id = $2", req.DisplayName, userID)
@@ -174,16 +179,16 @@ func (a *API) PutProfileHandler(w http.ResponseWriter, r *http.Request) {
 	if err == sql.ErrNoRows {
 		// Insert new profile
 		_, err = a.db.ExecContext(r.Context(), `
-			INSERT INTO patient_profiles (user_id, birth_date, blood_type, critical_facts, timezone)
-			VALUES ($1, $2, $3, $4, $5)`,
-			userID, t, req.BloodType, req.CriticalFacts, req.Timezone)
+			INSERT INTO patient_profiles (user_id, birth_date, blood_type, critical_facts, timezone, band_identifier)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			userID, t, req.BloodType, req.CriticalFacts, req.Timezone, req.BandIdentifier)
 	} else if err == nil {
 		// Update existing profile
 		_, err = a.db.ExecContext(r.Context(), `
 			UPDATE patient_profiles
-			SET birth_date = $1, blood_type = $2, critical_facts = $3, timezone = $4
-			WHERE user_id = $5`,
-			t, req.BloodType, req.CriticalFacts, req.Timezone, userID)
+			SET birth_date = $1, blood_type = $2, critical_facts = $3, timezone = $4, band_identifier = $5
+			WHERE user_id = $6`,
+			t, req.BloodType, req.CriticalFacts, req.Timezone, req.BandIdentifier, userID)
 	}
 
 	if err != nil {
