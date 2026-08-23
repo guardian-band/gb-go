@@ -33,55 +33,55 @@ func TestGetProfileSuccess(t *testing.T) {
 	expectedCriticalFacts := `{"allergies": ["penicillin"]}`
 	expectedTimezone := "Europe/Istanbul"
 
-	mock.ExpectQuery("^SELECT birth_date, blood_type, critical_facts, timezone FROM patient_profiles WHERE user_id = \\$1$").
+	mock.ExpectQuery("^SELECT birth_date, blood_type, critical_facts, timezone, band_identifier FROM patient_profiles WHERE user_id = \\$1$").
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"birth_date", "blood_type", "critical_facts", "timezone"}).
-			AddRow(expectedBirthDate, expectedBloodType, []byte(expectedCriticalFacts), expectedTimezone))
+		WillReturnRows(sqlmock.NewRows([]string{"birth_date", "blood_type", "critical_facts", "timezone", "band_identifier"}).
+			AddRow(expectedBirthDate, expectedBloodType, []byte(expectedCriticalFacts), expectedTimezone, nil))
 	mock.ExpectQuery("^SELECT display_name FROM users WHERE id = \\$1$").
 		WithArgs(userID).WillReturnRows(sqlmock.NewRows([]string{"display_name"}).AddRow("Ada"))
-
-	a.GetProfileHandler(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Errorf("expected status 200, got %d", rec.Code)
-	}
-
-	var resp PatientProfile
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
-	}
-
-	if resp.BirthDate != "1995-04-12" || resp.BloodType != expectedBloodType || resp.Timezone != expectedTimezone {
-		t.Errorf("unexpected response data: %+v", resp)
-	}
-	if resp.DisplayName != "Ada" {
-		t.Errorf("expected display name Ada, got %q", resp.DisplayName)
-	}
-
-	if err := mock.ExpectationsWereMet(); err != nil {
-		t.Errorf("sqlmock expectations were not met: %v", err)
-	}
-}
-
-func TestGetProfileNotFound(t *testing.T) {
-	db, mock, err := sqlmock.New()
-	if err != nil {
-		t.Fatalf("failed to create sqlmock: %v", err)
-	}
-	defer db.Close()
-
-	a := &API{db: db}
-	userID := "user-uuid-123"
-
-	req := httptest.NewRequest(http.MethodGet, "/api/profile", nil)
-	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
-	rec := httptest.NewRecorder()
-
-	mock.ExpectQuery("^SELECT birth_date, blood_type, critical_facts, timezone FROM patient_profiles WHERE user_id = \\$1$").
-		WithArgs(userID).
-		WillReturnError(sql.ErrNoRows)
-
-	a.GetProfileHandler(rec, req)
+ 
+ 	a.GetProfileHandler(rec, req)
+ 
+ 	if rec.Code != http.StatusOK {
+ 		t.Errorf("expected status 200, got %d", rec.Code)
+ 	}
+ 
+ 	var resp PatientProfile
+ 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+ 		t.Fatalf("failed to decode response: %v", err)
+ 	}
+ 
+ 	if resp.BirthDate != "1995-04-12" || resp.BloodType != expectedBloodType || resp.Timezone != expectedTimezone {
+ 		t.Errorf("unexpected response data: %+v", resp)
+ 	}
+ 	if resp.DisplayName != "Ada" {
+ 		t.Errorf("expected display name Ada, got %q", resp.DisplayName)
+ 	}
+ 
+ 	if err := mock.ExpectationsWereMet(); err != nil {
+ 		t.Errorf("sqlmock expectations were not met: %v", err)
+ 	}
+ }
+ 
+ func TestGetProfileNotFound(t *testing.T) {
+ 	db, mock, err := sqlmock.New()
+ 	if err != nil {
+ 		t.Fatalf("failed to create sqlmock: %v", err)
+ 	}
+ 	defer db.Close()
+ 
+ 	a := &API{db: db}
+ 	userID := "user-uuid-123"
+ 
+ 	req := httptest.NewRequest(http.MethodGet, "/api/profile", nil)
+ 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+ 	rec := httptest.NewRecorder()
+ 
+ 	mock.ExpectQuery("^SELECT birth_date, blood_type, critical_facts, timezone, band_identifier FROM patient_profiles WHERE user_id = \\$1$").
+ 		WithArgs(userID).
+ 		WillReturnError(sql.ErrNoRows)
+ 
+ 	a.GetProfileHandler(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("expected status 404, got %d", rec.Code)
@@ -135,7 +135,7 @@ func TestPutProfileSuccess(t *testing.T) {
 		WillReturnError(sql.ErrNoRows)
 
 	mock.ExpectExec("INSERT INTO patient_profiles").
-		WithArgs(userID, parsedTime, reqBody.BloodType, []byte(reqBody.CriticalFacts), reqBody.Timezone).
+		WithArgs(userID, parsedTime, reqBody.BloodType, []byte(reqBody.CriticalFacts), reqBody.Timezone, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	a.PutProfileHandler(rec, req)
@@ -224,7 +224,7 @@ func TestPutProfileDisplayNameUpdateRollsBackProfile(t *testing.T) {
 		WithArgs(userID).WillReturnError(sql.ErrNoRows)
 	parsedTime, _ := time.Parse("2006-01-02", reqBody.BirthDate)
 	mock.ExpectExec("INSERT INTO patient_profiles").
-		WithArgs(userID, parsedTime, reqBody.BloodType, []byte(reqBody.CriticalFacts), reqBody.Timezone).
+		WithArgs(userID, parsedTime, reqBody.BloodType, []byte(reqBody.CriticalFacts), reqBody.Timezone, nil).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	mock.ExpectExec("^UPDATE users SET display_name = \\$1 WHERE id = \\$2$").
 		WithArgs("Ada", userID).WillReturnError(sql.ErrConnDone)
