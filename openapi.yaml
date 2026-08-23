@@ -1166,6 +1166,10 @@ components:
         isEmergencyContact:
           type: boolean
           default: false
+        sharePhoneNumber:
+          type: boolean
+          default: false
+          description: Whether to share patient's phone number with the linked member
         expiresInSeconds:
           type: integer
           minimum: 1
@@ -1233,6 +1237,9 @@ components:
         birthDate:
           type: string
           format: date
+        phone:
+          type: string
+          description: Patient's phone number if they consented to share it. Otherwise empty/nil.
 
     EmergencyContactRequest:
       type: object

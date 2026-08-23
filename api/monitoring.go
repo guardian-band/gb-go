@@ -35,6 +35,7 @@ type MonitoringPatient struct {
 	Relationship string `json:"relationship"`
 	BloodType    string `json:"bloodType"`
 	BirthDate    string `json:"birthDate"`
+	Phone        string `json:"phone,omitempty"`
 }
 
 type CreateMonitoringInvitationRequest struct {
@@ -42,6 +43,7 @@ type CreateMonitoringInvitationRequest struct {
 	Kind               string `json:"kind"`
 	CanMonitor         bool   `json:"canMonitor"`
 	IsEmergencyContact bool   `json:"isEmergencyContact"`
+	SharePhoneNumber   *bool  `json:"sharePhoneNumber,omitempty"`
 	ExpiresInSeconds   int    `json:"expiresInSeconds,omitempty"`
 }
 
@@ -125,7 +127,8 @@ func (a *API) GetMonitoringPatientsHandler(w http.ResponseWriter, r *http.Reques
 
 	rows, err := a.db.QueryContext(r.Context(), `
 		SELECT pr.id, pr.patient_id, COALESCE(u.display_name, ''), pr.relationship,
-		       pp.blood_type, pp.birth_date
+		       pp.blood_type, pp.birth_date,
+		       CASE WHEN pr.share_phone_number = TRUE THEN COALESCE(u.phone_number, '') ELSE '' END as phone
 		FROM patient_relationships pr
 		JOIN users u ON u.id = pr.patient_id
 		JOIN patient_profiles pp ON pp.user_id = pr.patient_id
@@ -145,10 +148,12 @@ func (a *API) GetMonitoringPatientsHandler(w http.ResponseWriter, r *http.Reques
 		var patient MonitoringPatient
 		var bloodType sql.NullString
 		var birthDate sql.NullTime
-		if err := rows.Scan(&patient.ID, &patient.PatientID, &patient.DisplayName, &patient.Relationship, &bloodType, &birthDate); err != nil {
+		var phone string
+		if err := rows.Scan(&patient.ID, &patient.PatientID, &patient.DisplayName, &patient.Relationship, &bloodType, &birthDate, &phone); err != nil {
 			http.Error(w, "failed to scan monitoring patients", http.StatusInternalServerError)
 			return
 		}
+		patient.Phone = phone
 		patient.Name = patient.DisplayName
 		if bloodType.Valid {
 			patient.BloodType = bloodType.String
@@ -248,6 +253,11 @@ func (a *API) CreateMonitoringInvitationHandler(w http.ResponseWriter, r *http.R
 		}
 		lifetime = time.Duration(req.ExpiresInSeconds) * time.Second
 	}
+	sharePhone := false
+	if req.SharePhoneNumber != nil {
+		sharePhone = *req.SharePhoneNumber
+	}
+
 	token, err := newInvitationToken()
 	if err != nil {
 		http.Error(w, "failed to create invitation", http.StatusInternalServerError)
@@ -257,10 +267,10 @@ func (a *API) CreateMonitoringInvitationHandler(w http.ResponseWriter, r *http.R
 	_, err = a.db.ExecContext(r.Context(), `
 		INSERT INTO patient_link_invitations
 			(id, patient_id, token_hash, relationship, kind, can_monitor,
-			 is_emergency_contact, expires_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			 share_phone_number, is_emergency_contact, expires_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
 		uuid.New().String(), patientID, hashInvitationToken(token), req.Relationship,
-		req.Kind, req.CanMonitor, req.IsEmergencyContact, expiresAt)
+		req.Kind, req.CanMonitor, sharePhone, req.IsEmergencyContact, expiresAt)
 	if err != nil {
 		http.Error(w, "failed to create invitation", http.StatusInternalServerError)
 		return
@@ -303,18 +313,19 @@ func (a *API) RedeemMonitoringInvitationHandler(w http.ResponseWriter, r *http.R
 		Relationship       string
 		Kind               string
 		CanMonitor         bool
+		SharePhoneNumber   bool
 		IsEmergencyContact bool
 		ExpiresAt          time.Time
 	}
 	err = tx.QueryRowContext(r.Context(), `
 		SELECT id, patient_id, relationship, kind, can_monitor,
-		       is_emergency_contact, expires_at
+		       share_phone_number, is_emergency_contact, expires_at
 		FROM patient_link_invitations
 		WHERE token_hash = $1 AND redeemed_at IS NULL AND expires_at > CURRENT_TIMESTAMP
 		FOR UPDATE`, hashInvitationToken(req.Token)).Scan(
 		&invitation.ID, &invitation.PatientID, &invitation.Relationship,
-		&invitation.Kind, &invitation.CanMonitor, &invitation.IsEmergencyContact,
-		&invitation.ExpiresAt)
+		&invitation.Kind, &invitation.CanMonitor, &invitation.SharePhoneNumber,
+		&invitation.IsEmergencyContact, &invitation.ExpiresAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		http.Error(w, "invitation is invalid, expired, or already used", http.StatusBadRequest)
 		return
@@ -338,23 +349,26 @@ func (a *API) RedeemMonitoringInvitationHandler(w http.ResponseWriter, r *http.R
 		SET relationship = $3,
 		    kind = $4,
 		    can_monitor = $5,
-		    is_emergency_contact = $6,
+		    share_phone_number = $6,
+		    is_emergency_contact = $7,
 		    active = TRUE,
 		    revoked_at = NULL
 		WHERE patient_id = $1 AND member_user_id = $2
 		RETURNING id::text`,
 		invitation.PatientID, memberID, invitation.Relationship,
-		invitation.Kind, invitation.CanMonitor, invitation.IsEmergencyContact).Scan(&relationshipID)
+		invitation.Kind, invitation.CanMonitor, invitation.SharePhoneNumber,
+		invitation.IsEmergencyContact).Scan(&relationshipID)
 	if err == sql.ErrNoRows {
 		relationshipID = uuid.New().String()
 		err = tx.QueryRowContext(r.Context(), `
 			INSERT INTO patient_relationships
 				(id, patient_id, member_user_id, relationship, kind, can_monitor,
-				 is_emergency_contact, active, revoked_at)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NULL)
+				 share_phone_number, is_emergency_contact, active, revoked_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, TRUE, NULL)
 			RETURNING id`,
 			relationshipID, invitation.PatientID, memberID, invitation.Relationship,
-			invitation.Kind, invitation.CanMonitor, invitation.IsEmergencyContact).Scan(&relationshipID)
+			invitation.Kind, invitation.CanMonitor, invitation.SharePhoneNumber,
+			invitation.IsEmergencyContact).Scan(&relationshipID)
 	}
 	if err != nil {
 		log.Printf("Redeem error: %v", err)
