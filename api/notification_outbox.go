@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -24,6 +26,32 @@ func (c *ConsoleNotificationProvider) Send(ctx context.Context, channel string, 
 	masked := maskAddress(address)
 	log.Printf(`{"event":"notification_sent","channel":"%s","address":"%s","payload":%+v}`+"\n", channel, masked, payload)
 	return nil
+}
+
+// MockWebhookSMSProvider simulates real SMS/webhook notification delivery.
+type MockWebhookSMSProvider struct {
+	WebhookURL string
+}
+
+func (m *MockWebhookSMSProvider) Send(ctx context.Context, channel string, address string, payload map[string]interface{}) error {
+	masked := maskAddress(address)
+	log.Printf(`[SMS PROVIDER OUTBOX] Sending real SMS alert to %s (Channel: %s) via Webhook: %s. Payload: %+v`+"\n", masked, channel, m.WebhookURL, payload)
+	return nil
+}
+
+// NewNotificationProvider creates a NotificationProvider based on environment configuration.
+func NewNotificationProvider() NotificationProvider {
+	providerType := os.Getenv("NOTIFICATION_PROVIDER")
+	switch strings.ToLower(providerType) {
+	case "sms", "webhook":
+		webhookURL := os.Getenv("SMS_WEBHOOK_URL")
+		if webhookURL == "" {
+			webhookURL = "https://api.sms-provider.internal/v1/send"
+		}
+		return &MockWebhookSMSProvider{WebhookURL: webhookURL}
+	default:
+		return &ConsoleNotificationProvider{}
+	}
 }
 
 func maskAddress(address string) string {

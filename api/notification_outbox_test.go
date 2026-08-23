@@ -361,3 +361,24 @@ func TestNotificationWorkerTerminalFailure(t *testing.T) {
 		t.Errorf("sqlmock expectations not met: %v", err)
 	}
 }
+
+func TestNewNotificationProviderEnvironmentSelection(t *testing.T) {
+	// Test default fallback provider
+	t.Setenv("NOTIFICATION_PROVIDER", "")
+	p1 := NewNotificationProvider()
+	if _, ok := p1.(*ConsoleNotificationProvider); !ok {
+		t.Errorf("expected ConsoleNotificationProvider by default, got %T", p1)
+	}
+
+	// Test SMS / Webhook provider selection
+	t.Setenv("NOTIFICATION_PROVIDER", "sms")
+	t.Setenv("SMS_WEBHOOK_URL", "https://example.com/sms")
+	p2 := NewNotificationProvider()
+	smsProvider, ok := p2.(*MockWebhookSMSProvider)
+	if !ok {
+		t.Fatalf("expected MockWebhookSMSProvider for sms, got %T", p2)
+	}
+	if smsProvider.WebhookURL != "https://example.com/sms" {
+		t.Errorf("expected webhook URL https://example.com/sms, got %s", smsProvider.WebhookURL)
+	}
+}
