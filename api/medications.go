@@ -3,6 +3,7 @@ package api
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -290,4 +291,47 @@ func (a *API) PostMedicationTakenHandler(w http.ResponseWriter, r *http.Request)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(TakenResponse{NextScheduledFor: nextDose})
+}
+
+// DeleteMedicationHandler soft-deletes an active medication plan for the authenticated user.
+func (a *API) DeleteMedicationHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserContextKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	medicationID := chi.URLParam(r, "medicationId")
+	if medicationID == "" {
+		http.Error(w, "missing medicationId parameter", http.StatusBadRequest)
+		return
+	}
+
+	var patientID string
+	err := a.db.QueryRowContext(r.Context(),
+		"SELECT patient_id FROM medications WHERE id = $1 AND active = true",
+		medicationID).Scan(&patientID)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "medication plan not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "database query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if patientID != userID {
+		http.Error(w, "forbidden: medication plan belongs to another patient", http.StatusForbidden)
+		return
+	}
+
+	_, err = a.db.ExecContext(r.Context(),
+		"UPDATE medications SET active = false WHERE id = $1 AND patient_id = $2",
+		medicationID, userID)
+	if err != nil {
+		http.Error(w, "failed to soft-delete medication plan: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

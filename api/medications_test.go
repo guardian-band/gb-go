@@ -388,3 +388,42 @@ func TestPostMedicationTakenForbidden(t *testing.T) {
 		t.Errorf("sqlmock expectations were not met: %v", err)
 	}
 }
+
+func TestDeleteMedicationHandlerSuccess(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+	userID := "user-uuid-123"
+	medID := "med-uuid-abc"
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/medications/"+medID, nil)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("medicationId", medID)
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	rec := httptest.NewRecorder()
+
+	mock.ExpectQuery("^SELECT patient_id FROM medications WHERE id = \\$1 AND active = true$").
+		WithArgs(medID).
+		WillReturnRows(sqlmock.NewRows([]string{"patient_id"}).AddRow(userID))
+
+	mock.ExpectExec("^UPDATE medications SET active = false WHERE id = \\$1 AND patient_id = \\$2$").
+		WithArgs(medID, userID).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	a.DeleteMedicationHandler(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("expected status 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}

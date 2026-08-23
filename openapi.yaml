@@ -524,6 +524,33 @@ paths:
         '500':
           description: Internal server error
 
+  /api/medications/{medicationId}:
+    delete:
+      summary: Soft-delete an active medication plan
+      operationId: deleteMedicationPlan
+      tags:
+        - Medications
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: medicationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Medication plan successfully deleted
+        '401':
+          description: Missing or invalid token
+        '403':
+          description: Forbidden - medication plan belongs to another patient
+        '404':
+          description: Medication plan not found
+        '500':
+          description: Internal server error
+
   /api/medications/{medicationId}/taken:
     post:
       summary: Record that a dose has been taken now
