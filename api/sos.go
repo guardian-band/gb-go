@@ -191,6 +191,19 @@ func (a *API) PostSOSIncidentHandler(w http.ResponseWriter, r *http.Request) {
 	incidentID := uuid.New().String()
 	startedAt := time.Now()
 
+	// Validate patient profile exists
+	var exists int
+	err := a.db.QueryRowContext(r.Context(), "SELECT 1 FROM patient_profiles WHERE user_id = $1", userID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"message": "patient profile not found"})
+		return
+	} else if err != nil {
+		http.Error(w, "database query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	tx, err := a.db.BeginTx(r.Context(), nil)
 	if err != nil {
 		http.Error(w, "failed to start transaction: "+err.Error(), http.StatusInternalServerError)

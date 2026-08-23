@@ -471,12 +471,25 @@ func (a *API) PostEmergencyContactHandler(w http.ResponseWriter, r *http.Request
 		http.Error(w, "invalid phone number format, must be E.164", http.StatusBadRequest)
 		return
 	}
+	// Validate patient profile exists
+	var exists int
+	err := a.db.QueryRowContext(r.Context(), "SELECT 1 FROM patient_profiles WHERE user_id = $1", patientID).Scan(&exists)
+	if err == sql.ErrNoRows {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"message": "patient profile not found"})
+		return
+	} else if err != nil {
+		http.Error(w, "database query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	isPrimary := false
 	if req.IsPrimary != nil {
 		isPrimary = *req.IsPrimary
 	}
 	id := uuid.New().String()
-	_, err := a.db.ExecContext(r.Context(), `
+	_, err = a.db.ExecContext(r.Context(), `
 		INSERT INTO emergency_contacts (id, patient_id, display_name, phone, relationship, is_primary)
 		VALUES ($1, $2, $3, $4, $5, $6)`, id, patientID, req.DisplayName, req.Phone, req.Relationship, isPrimary)
 	if err != nil {

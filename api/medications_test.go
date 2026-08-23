@@ -72,6 +72,10 @@ func TestPostMedicationSuccess(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 	rec := httptest.NewRecorder()
 
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
+
 	mock.ExpectExec("INSERT INTO medications").
 		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
@@ -107,6 +111,10 @@ func TestPostMedicationSuccess8Hours(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/medications", bytes.NewReader(bodyBytes))
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 	rec := httptest.NewRecorder()
+
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
 
 	mock.ExpectExec("INSERT INTO medications").
 		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
@@ -178,6 +186,11 @@ func TestPostMedicationWithPrescriptionSuccess(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 	rec := httptest.NewRecorder()
 
+	// Mock DB check for patient profile
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
+
 	// Mock DB check for prescription
 	mock.ExpectQuery("^SELECT patient_id, kind FROM documents WHERE id = \\$1").
 		WithArgs(prescriptionDocID).
@@ -222,6 +235,11 @@ func TestPostMedicationWithPrescriptionForeignOwner(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/medications", bytes.NewReader(bodyBytes))
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 	rec := httptest.NewRecorder()
+
+	// Mock DB check for patient profile
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
 
 	// Mock DB returning other user as owner
 	mock.ExpectQuery("^SELECT patient_id, kind FROM documents WHERE id = \\$1").
@@ -421,6 +439,51 @@ func TestDeleteMedicationHandlerSuccess(t *testing.T) {
 
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("expected status 204, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestPostMedicationProfileNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+	userID := "user-uuid-123"
+
+	reqBody := CreateMedicationRequest{
+		Name:           "Parol",
+		Strength:       "500mg",
+		Instructions:   "Günde 2 kez",
+		FrequencyHours: 12,
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/medications", bytes.NewReader(bodyBytes))
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+	rec := httptest.NewRecorder()
+
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnError(sql.ErrNoRows)
+
+	a.PostMedicationHandler(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status 403, got %d", rec.Code)
+	}
+
+	var resp map[string]string
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp["message"] != "patient profile not found" {
+		t.Errorf("expected 'patient profile not found', got %q", resp["message"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

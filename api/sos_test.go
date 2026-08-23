@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -59,6 +60,11 @@ func TestPostSOSIncidentSuccess(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/sos/incidents", bytes.NewReader(bodyBytes))
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
 	rec := httptest.NewRecorder()
+
+	// Patient profile existence check mock
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
 
 	mock.ExpectBegin()
 
@@ -257,6 +263,46 @@ func TestPostSOSAllClearForbidden(t *testing.T) {
 
 	if rec.Code != http.StatusForbidden {
 		t.Errorf("expected status 403, got %d", rec.Code)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestPostSOSIncidentProfileNotFound(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+	userID := "user-uuid-123"
+
+	reqBody := SOSIncidentRequest{}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/sos/incidents", bytes.NewReader(bodyBytes))
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+	rec := httptest.NewRecorder()
+
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnError(sql.ErrNoRows)
+
+	a.PostSOSIncidentHandler(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("expected status 403, got %d", rec.Code)
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp["message"] != "patient profile not found" {
+		t.Errorf("expected 'patient profile not found', got %q", resp["message"])
 	}
 
 	if err := mock.ExpectationsWereMet(); err != nil {

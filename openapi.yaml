@@ -333,6 +333,8 @@ paths:
           description: Invalid request body, oversize file, or unsupported file format
         '401':
           description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - Patient profile not found
         '500':
           description: Internal server error or storage failure
 
@@ -520,7 +522,7 @@ paths:
         '401':
           description: Missing or invalid token
         '403':
-          description: Forbidden - prescription document belongs to another user
+          description: Forbidden - patient profile not found or prescription document belongs to another user
         '500':
           description: Internal server error
 
@@ -607,6 +609,8 @@ paths:
           description: Invalid request payload or coordinates validation failed
         '401':
           description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - Patient profile not found
         '500':
           description: Internal server error
 
@@ -751,6 +755,8 @@ paths:
                     format: date-time
         '401':
           description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - Patient profile not found
         '500':
           description: Internal server error
 
@@ -990,6 +996,8 @@ paths:
           description: Contact created
         '400':
           description: Invalid contact
+        '403':
+          description: Forbidden - Patient profile not found
         '409':
           description: Contact already exists
 
