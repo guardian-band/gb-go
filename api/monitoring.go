@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -333,22 +334,31 @@ func (a *API) RedeemMonitoringInvitationHandler(w http.ResponseWriter, r *http.R
 
 	relationshipID := uuid.New().String()
 	err = tx.QueryRowContext(r.Context(), `
-		INSERT INTO patient_relationships
-			(id, patient_id, member_user_id, relationship, kind, can_monitor,
-			 is_emergency_contact, active, revoked_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NULL)
-		ON CONFLICT (patient_id, member_user_id) DO UPDATE SET
-			relationship = EXCLUDED.relationship,
-			kind = EXCLUDED.kind,
-			can_monitor = EXCLUDED.can_monitor,
-			is_emergency_contact = EXCLUDED.is_emergency_contact,
-			active = TRUE,
-			revoked_at = NULL
-		RETURNING id`,
-		relationshipID, invitation.PatientID, memberID, invitation.Relationship,
+		UPDATE patient_relationships
+		SET relationship = $3,
+		    kind = $4,
+		    can_monitor = $5,
+		    is_emergency_contact = $6,
+		    active = TRUE,
+		    revoked_at = NULL
+		WHERE patient_id = $1 AND member_user_id = $2
+		RETURNING id::text`,
+		invitation.PatientID, memberID, invitation.Relationship,
 		invitation.Kind, invitation.CanMonitor, invitation.IsEmergencyContact).Scan(&relationshipID)
+	if err == sql.ErrNoRows {
+		relationshipID = uuid.New().String()
+		err = tx.QueryRowContext(r.Context(), `
+			INSERT INTO patient_relationships
+				(id, patient_id, member_user_id, relationship, kind, can_monitor,
+				 is_emergency_contact, active, revoked_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, NULL)
+			RETURNING id`,
+			relationshipID, invitation.PatientID, memberID, invitation.Relationship,
+			invitation.Kind, invitation.CanMonitor, invitation.IsEmergencyContact).Scan(&relationshipID)
+	}
 	if err != nil {
-		http.Error(w, "failed to create relationship", http.StatusInternalServerError)
+		log.Printf("Redeem error: %v", err)
+		http.Error(w, "failed to create relationship: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
