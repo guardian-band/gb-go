@@ -867,6 +867,30 @@ paths:
         '500':
           description: Internal server error
 
+  /api/emergency-access/audit-logs:
+    get:
+      summary: Get emergency access audit logs for the patient
+      operationId: getEmergencyAccessAuditLogs
+      tags:
+        - Emergency Access
+      security:
+        - BearerAuth: []
+      responses:
+        '200':
+          description: Audit logs successfully retrieved
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AuditLogEntry'
+        '401':
+          description: Missing, invalid, or expired JWT token
+        '403':
+          description: Forbidden - Patient profile not found
+        '500':
+          description: Internal server error
+
   /api/patient-link-invitations:
     post:
       summary: Create a patient-approved monitoring invitation
@@ -1278,6 +1302,34 @@ components:
           maxLength: 64
         isPrimary:
           type: boolean
+
+    AuditLogEntry:
+      type: object
+      required: [id, patientId, responderId, allowed, createdAt]
+      properties:
+        id:
+          type: string
+          format: uuid
+        patientId:
+          type: string
+          format: uuid
+        responderId:
+          type: string
+          format: uuid
+        responderName:
+          type: string
+        responderPhone:
+          type: string
+        sessionId:
+          type: string
+          format: uuid
+        allowed:
+          type: boolean
+        reason:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
 
     PatientRelationship:
       type: object

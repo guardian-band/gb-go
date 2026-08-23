@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
@@ -213,6 +214,28 @@ func (a *API) GetEmergencyAccessMedicalCardHandler(w http.ResponseWriter, r *htt
 		}
 		auditBytes, _ := json.Marshal(audit)
 		log.Println(string(auditBytes)) // Emits structured audit log
+
+		// Write to database
+		var pID interface{} = patientID
+		if patientID == "" {
+			pID = nil
+		}
+		var rID interface{} = responderID
+		if responderID == "" {
+			rID = nil
+		}
+		var sID interface{} = sessionID
+		if sessionID == "" {
+			sID = nil
+		}
+
+		_, dbErr := a.db.ExecContext(context.Background(), `
+			INSERT INTO emergency_access_audit_logs (id, patient_id, responder_id, session_id, allowed, reason, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7)
+		`, uuid.New().String(), pID, rID, sID, allowed, reason, time.Now())
+		if dbErr != nil {
+			log.Printf("Failed to write emergency audit log to db: %v", dbErr)
+		}
 	}
 
 	if err == sql.ErrNoRows {
@@ -366,4 +389,93 @@ func (a *API) DeleteEmergencyAccessSessionHandler(w http.ResponseWriter, r *http
 	json.NewEncoder(w).Encode(map[string]string{
 		"message": "emergency access session revoked successfully",
 	})
+}
+
+// AuditLogEntry represents a log of emergency access events.
+type AuditLogEntry struct {
+	ID             string    `json:"id"`
+	PatientID      string    `json:"patientId"`
+	ResponderID    string    `json:"responderId"`
+	ResponderName  string    `json:"responderName,omitempty"`
+	ResponderPhone string    `json:"responderPhone,omitempty"`
+	SessionID      *string   `json:"sessionId,omitempty"`
+	Allowed        bool      `json:"allowed"`
+	Reason         string    `json:"reason,omitempty"`
+	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// GetEmergencyAccessAuditLogsHandler returns the log of emergency access events for the patient.
+func (a *API) GetEmergencyAccessAuditLogsHandler(w http.ResponseWriter, r *http.Request) {
+	patientID, ok := r.Context().Value(UserContextKey).(string)
+	if !ok || patientID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Validate patient_profile exists (BT-06 check)
+	var profileExists int
+	err := a.db.QueryRowContext(r.Context(), "SELECT 1 FROM patient_profiles WHERE user_id = $1", patientID).Scan(&profileExists)
+	if err == sql.ErrNoRows {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]string{"message": "patient profile not found"})
+		return
+	} else if err != nil {
+		http.Error(w, "database query error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	rows, err := a.db.QueryContext(r.Context(), `
+		SELECT l.id, l.patient_id, l.responder_id, u.display_name, u.phone_number,
+		       l.session_id, l.allowed, l.reason, l.created_at
+		FROM emergency_access_audit_logs l
+		LEFT JOIN users u ON u.id = l.responder_id
+		WHERE l.patient_id = $1
+		ORDER BY l.created_at DESC
+	`, patientID)
+	if err != nil {
+		http.Error(w, "failed to query audit logs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	logs := make([]AuditLogEntry, 0)
+	for rows.Next() {
+		var entry AuditLogEntry
+		var sessionID sql.NullString
+		var responderName sql.NullString
+		var responderPhone sql.NullString
+		var reason sql.NullString
+		err := rows.Scan(
+			&entry.ID, &entry.PatientID, &entry.ResponderID, &responderName, &responderPhone,
+			&sessionID, &entry.Allowed, &reason, &entry.CreatedAt,
+		)
+		if err != nil {
+			http.Error(w, "failed to scan audit log: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		if sessionID.Valid {
+			s := sessionID.String
+			entry.SessionID = &s
+		}
+		if responderName.Valid {
+			entry.ResponderName = responderName.String
+		}
+		if responderPhone.Valid {
+			entry.ResponderPhone = responderPhone.String
+		}
+		if reason.Valid {
+			entry.Reason = reason.String
+		}
+		logs = append(logs, entry)
+	}
+
+	if err := rows.Err(); err != nil {
+		http.Error(w, "failed to read audit logs: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(logs)
 }
