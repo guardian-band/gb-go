@@ -308,6 +308,9 @@ func TestRedeemMonitoringInvitationAtomicallyCreatesRelationship(t *testing.T) {
 		WithArgs(hashInvitationToken(token)).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "relationship", "kind", "can_monitor", "is_emergency_contact", "expires_at"}).
 			AddRow("invite-1", "patient-1", "daughter", "family", true, false, time.Now().Add(time.Hour)))
+	mock.ExpectQuery("^UPDATE patient_relationships").
+		WithArgs("patient-1", "member-1", "daughter", "family", true, false).
+		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery("^INSERT INTO patient_relationships").
 		WithArgs(sqlmock.AnyArg(), "patient-1", "member-1", "daughter", "family", true, false).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("relationship-1"))
