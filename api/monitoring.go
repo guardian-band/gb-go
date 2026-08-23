@@ -567,6 +567,62 @@ func (a *API) PatchEmergencyContactHandler(w http.ResponseWriter, r *http.Reques
 	w.WriteHeader(http.StatusOK)
 }
 
+func (a *API) PutEmergencyContactHandler(w http.ResponseWriter, r *http.Request) {
+	patientID, ok := userIDFromContext(r)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	contactID := chi.URLParam(r, "contactId")
+	if contactID == "" {
+		http.Error(w, "missing contactId", http.StatusBadRequest)
+		return
+	}
+	var req EmergencyContactRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	req.Phone = strings.TrimSpace(req.Phone)
+	req.Relationship = strings.TrimSpace(req.Relationship)
+	if req.DisplayName == "" || req.Phone == "" || req.Relationship == "" || len(req.DisplayName) > 200 || len(req.Phone) > 32 || len(req.Relationship) > 64 {
+		http.Error(w, "displayName, phone, and relationship are required", http.StatusBadRequest)
+		return
+	}
+	if !e164Regex.MatchString(req.Phone) {
+		http.Error(w, "invalid phone number format, must be E.164", http.StatusBadRequest)
+		return
+	}
+	isPrimary := false
+	if req.IsPrimary != nil {
+		isPrimary = *req.IsPrimary
+	}
+
+	result, err := a.db.ExecContext(r.Context(), `
+		UPDATE emergency_contacts
+		SET display_name = $1, phone = $2, relationship = $3, is_primary = $4
+		WHERE id = $5 AND patient_id = $6`,
+		req.DisplayName, req.Phone, req.Relationship, isPrimary, contactID, patientID)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "duplicate") || strings.Contains(strings.ToLower(err.Error()), "unique") {
+			http.Error(w, "emergency contact already exists", http.StatusConflict)
+			return
+		}
+		http.Error(w, "failed to update emergency contact", http.StatusInternalServerError)
+		return
+	}
+	affected, _ := result.RowsAffected()
+	if affected == 0 {
+		http.Error(w, "emergency contact not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(EmergencyContactResponse{ID: contactID, DisplayName: req.DisplayName, Phone: req.Phone, Relationship: req.Relationship, IsPrimary: isPrimary})
+}
+
 func (a *API) DeleteEmergencyContactHandler(w http.ResponseWriter, r *http.Request) {
 	patientID, ok := userIDFromContext(r)
 	if !ok {

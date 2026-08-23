@@ -233,6 +233,53 @@ func TestEmergencyContactPatchAndDeleteArePatientScoped(t *testing.T) {
 	}
 }
 
+func TestEmergencyContactPutSuccess(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	a := &API{db: db}
+	ctx := chi.NewRouteContext()
+	ctx.URLParams.Add("contactId", "contact-1")
+
+	isPrimary := true
+	reqBody := EmergencyContactRequest{
+		DisplayName:  "Mother",
+		Phone:        "+905551112233",
+		Relationship: "Mother",
+		IsPrimary:    &isPrimary,
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPut, "/api/emergency-contacts/contact-1", bytes.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "patient-1"))
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, ctx))
+
+	mock.ExpectExec("^UPDATE emergency_contacts").
+		WithArgs("Mother", "+905551112233", "Mother", true, "contact-1", "patient-1").
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	rec := httptest.NewRecorder()
+	a.PutEmergencyContactHandler(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d, body: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp EmergencyContactResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.DisplayName != "Mother" || resp.Phone != "+905551112233" || resp.Relationship != "Mother" || !resp.IsPrimary {
+		t.Errorf("unexpected updated response data: %+v", resp)
+	}
+
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCreateMonitoringInvitationReturnsOpaqueToken(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	if err != nil {

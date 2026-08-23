@@ -1018,6 +1018,36 @@ paths:
           description: Contact not found for this patient
         '409':
           description: Another contact already uses this phone number
+    put:
+      summary: Replace (fully update) an external emergency contact
+      security:
+        - BearerAuth: []
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmergencyContactRequest'
+      responses:
+        '200':
+          description: Contact updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyContact'
+        '400':
+          description: Invalid input fields
+        '404':
+          description: Contact not found for this patient
+        '409':
+          description: Another contact already uses this phone number
     delete:
       summary: Delete an external emergency contact
       security:
