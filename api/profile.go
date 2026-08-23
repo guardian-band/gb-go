@@ -194,3 +194,90 @@ func (a *API) PutProfileHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(req)
 }
+
+// UserAccount represents a user's role and role-specific metadata facts.
+type UserAccount struct {
+	Role      string          `json:"role"`
+	RoleFacts json.RawMessage `json:"roleFacts"`
+}
+
+// GetAccountHandler retrieves the user account role and roleFacts.
+func (a *API) GetAccountHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserContextKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var role string
+	var roleFacts []byte
+
+	err := a.db.QueryRowContext(r.Context(),
+		"SELECT role, role_facts FROM user_accounts WHERE user_id = $1",
+		userID).Scan(&role, &roleFacts)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "user account not found", http.StatusNotFound)
+		return
+	} else if err != nil {
+		http.Error(w, "failed to query user account: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	account := UserAccount{
+		Role:      role,
+		RoleFacts: json.RawMessage(roleFacts),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(account)
+}
+
+// PutAccountHandler creates or updates the user account role and roleFacts.
+func (a *API) PutAccountHandler(w http.ResponseWriter, r *http.Request) {
+	userID, ok := r.Context().Value(UserContextKey).(string)
+	if !ok || userID == "" {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req UserAccount
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Role != "patient" && req.Role != "family" && req.Role != "doctor" {
+		http.Error(w, "invalid role. Must be patient, family, or doctor", http.StatusBadRequest)
+		return
+	}
+
+	if len(req.RoleFacts) == 0 {
+		req.RoleFacts = json.RawMessage("{}")
+	}
+
+	var exists int
+	err := a.db.QueryRowContext(r.Context(), "SELECT 1 FROM user_accounts WHERE user_id = $1", userID).Scan(&exists)
+
+	if errors.Is(err, sql.ErrNoRows) {
+		_, err = a.db.ExecContext(r.Context(), `
+			INSERT INTO user_accounts (user_id, role, role_facts, updated_at)
+			VALUES ($1, $2, $3, $4)`,
+			userID, req.Role, req.RoleFacts, time.Now())
+	} else if err == nil {
+		_, err = a.db.ExecContext(r.Context(), `
+			UPDATE user_accounts
+			SET role = $1, role_facts = $2, updated_at = $3
+			WHERE user_id = $4`,
+			req.Role, req.RoleFacts, time.Now(), userID)
+	}
+
+	if err != nil {
+		http.Error(w, "failed to save user account: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(req)
+}
