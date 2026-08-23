@@ -152,6 +152,7 @@ func (a *API) Router() http.Handler {
 			r.Get("/medication-catalog", a.GetMedicationCatalogHandler)
 			r.Get("/medications", a.GetMedicationsHandler)
 			r.Post("/medications", a.PostMedicationHandler)
+			r.Delete("/medications/{medicationId}", a.DeleteMedicationHandler)
 			r.Post("/medications/{medicationId}/taken", a.PostMedicationTakenHandler)
 			r.Post("/sos/incidents", a.PostSOSIncidentHandler)
 			r.Post("/sos/incidents/{incidentId}/all-clear", a.PostSOSAllClearHandler)
