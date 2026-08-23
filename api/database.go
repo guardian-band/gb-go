@@ -71,7 +71,31 @@ func initializeDatabase(ctx context.Context, db *sql.DB) error {
 
 		INSERT INTO medication_catalog (id, name, strength)
 		SELECT '555a1234-abcd-ef01-2345-6789abcdef05', 'Coraspin', '300mg'
-		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog WHERE id = '555a1234-abcd-ef01-2345-6789abcdef05');`
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog WHERE id = '555a1234-abcd-ef01-2345-6789abcdef05');
+
+		INSERT INTO medication_catalog_ingredients (id, catalog_item_id, ingredient_name, drugbank_id, ai_supported)
+		SELECT '611a1234-abcd-ef01-2345-6789abcdef01', '111a1234-abcd-ef01-2345-6789abcdef01', 'acetaminophen', 'DB00316', TRUE
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog_ingredients WHERE catalog_item_id = '111a1234-abcd-ef01-2345-6789abcdef01' AND drugbank_id = 'DB00316');
+
+		INSERT INTO medication_catalog_ingredients (id, catalog_item_id, ingredient_name, drugbank_id, ai_supported)
+		SELECT '622a1234-abcd-ef01-2345-6789abcdef02', '222a1234-abcd-ef01-2345-6789abcdef02', 'acetylsalicylic acid', 'DB00945', TRUE
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog_ingredients WHERE catalog_item_id = '222a1234-abcd-ef01-2345-6789abcdef02' AND drugbank_id = 'DB00945');
+
+		INSERT INTO medication_catalog_ingredients (id, catalog_item_id, ingredient_name, drugbank_id, ai_supported)
+		SELECT '633a1234-abcd-ef01-2345-6789abcdef03', '333a1234-abcd-ef01-2345-6789abcdef03', 'amoxicillin', 'DB01060', FALSE
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog_ingredients WHERE catalog_item_id = '333a1234-abcd-ef01-2345-6789abcdef03' AND drugbank_id = 'DB01060');
+
+		INSERT INTO medication_catalog_ingredients (id, catalog_item_id, ingredient_name, drugbank_id, ai_supported)
+		SELECT '634a1234-abcd-ef01-2345-6789abcdef04', '333a1234-abcd-ef01-2345-6789abcdef03', 'clavulanic acid', 'DB00766', FALSE
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog_ingredients WHERE catalog_item_id = '333a1234-abcd-ef01-2345-6789abcdef03' AND drugbank_id = 'DB00766');
+
+		INSERT INTO medication_catalog_ingredients (id, catalog_item_id, ingredient_name, drugbank_id, ai_supported)
+		SELECT '644a1234-abcd-ef01-2345-6789abcdef04', '444a1234-abcd-ef01-2345-6789abcdef04', 'atorvastatin', 'DB01076', FALSE
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog_ingredients WHERE catalog_item_id = '444a1234-abcd-ef01-2345-6789abcdef04' AND drugbank_id = 'DB01076');
+
+		INSERT INTO medication_catalog_ingredients (id, catalog_item_id, ingredient_name, drugbank_id, ai_supported)
+		SELECT '655a1234-abcd-ef01-2345-6789abcdef05', '555a1234-abcd-ef01-2345-6789abcdef05', 'acetylsalicylic acid', 'DB00945', TRUE
+		WHERE NOT EXISTS (SELECT 1 FROM medication_catalog_ingredients WHERE catalog_item_id = '555a1234-abcd-ef01-2345-6789abcdef05' AND drugbank_id = 'DB00945');`
 	
 	if _, err := db.ExecContext(ctx, seedSQL); err != nil {
 		fmt.Printf("Database Seeding Warning: %s\n", err.Error())

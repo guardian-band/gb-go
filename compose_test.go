@@ -15,12 +15,20 @@ type composeFile struct {
 
 type composeService struct {
 	Image       string            `yaml:"image"`
+	Build       composeBuild      `yaml:"build"`
 	Environment map[string]string `yaml:"environment"`
 	DependsOn   map[string]struct {
 		Condition string `yaml:"condition"`
 	} `yaml:"depends_on"`
 	Healthcheck map[string]any `yaml:"healthcheck"`
 	Volumes     []string       `yaml:"volumes"`
+	Ports       []string       `yaml:"ports"`
+	Expose      []string       `yaml:"expose"`
+}
+
+type composeBuild struct {
+	Context    string `yaml:"context"`
+	Dockerfile string `yaml:"dockerfile"`
 }
 
 func TestComposeStartsDatabaseAndRedisBeforeAPI(t *testing.T) {
@@ -85,6 +93,39 @@ func TestComposeStartsDatabaseAndRedisBeforeAPI(t *testing.T) {
 		if !strings.Contains(string(redisConfig), setting) {
 			t.Errorf("Redis config does not contain %q", setting)
 		}
+	}
+}
+
+func TestComposeWiresPrivatePolypharmacyAIService(t *testing.T) {
+	data, err := os.ReadFile("compose.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var compose composeFile
+	if err := yaml.Unmarshal(data, &compose); err != nil {
+		t.Fatalf("parse compose.yaml: %v", err)
+	}
+
+	apiService := compose.Services["api"]
+	aiService, ok := compose.Services["polypharmacy-ai"]
+	if !ok {
+		t.Fatal("polypharmacy-ai service is missing")
+	}
+	if aiService.Build.Context != "../ai" || aiService.Build.Dockerfile != "Dockerfile" {
+		t.Errorf("unexpected AI build source: %+v", aiService.Build)
+	}
+	if !contains(aiService.Volumes, "../ai/model-release:/models:ro") {
+		t.Errorf("AI model-release read-only mount is missing: %v", aiService.Volumes)
+	}
+	if len(aiService.Ports) != 0 || !contains(aiService.Expose, "8000") {
+		t.Errorf("AI service must be private to Compose; ports=%v expose=%v", aiService.Ports, aiService.Expose)
+	}
+	if got := apiService.Environment["AI_BASE_URL"]; got != "http://polypharmacy-ai:8000" {
+		t.Errorf("AI_BASE_URL = %q", got)
+	}
+	if got := apiService.DependsOn["polypharmacy-ai"].Condition; got != "service_started" {
+		t.Errorf("AI dependency condition = %q, want service_started", got)
 	}
 }
 

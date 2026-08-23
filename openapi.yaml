@@ -553,6 +553,43 @@ paths:
         '500':
           description: Internal server error
 
+  /api/medication-risk-analyses:
+    post:
+      summary: Analyze interaction risks between the patient's active medications
+      description: Uses only catalog-mapped, AI-supported ingredients. Predictions support clinical review and are not prescribing instructions.
+      operationId: createMedicationRiskAnalysis
+      tags:
+        - Medications
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MedicationRiskAnalysisRequest'
+      responses:
+        '200':
+          description: Risk analysis completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MedicationRiskAnalysisResponse'
+        '400':
+          description: Invalid medication IDs, duplicate IDs, topK, or excessive pair count
+        '401':
+          description: Missing or invalid token
+        '404':
+          description: One or more active medications are not owned by the patient or do not exist
+        '422':
+          description: One or more medications lack an AI-supported ingredient mapping
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UnsupportedMedicationsResponse'
+        '503':
+          description: AI risk analysis service is unavailable
+
   /api/medications/{medicationId}/taken:
     post:
       summary: Record that a dose has been taken now
@@ -1471,6 +1508,7 @@ components:
         - id
         - name
         - strength
+        - ingredients
       properties:
         id:
           type: string
@@ -1481,13 +1519,40 @@ components:
         strength:
           type: string
           example: "500mg"
+        ingredients:
+          type: array
+          items:
+            $ref: '#/components/schemas/MedicationIngredient'
+
+    MedicationIngredient:
+      type: object
+      required:
+        - name
+        - drugBankId
+        - aiSupported
+      properties:
+        name:
+          type: string
+          example: "acetaminophen"
+        drugBankId:
+          type: string
+          example: "DB00316"
+        aiSupported:
+          type: boolean
 
     CreateMedicationRequest:
       type: object
       required:
-        - name
         - frequencyHours
+      anyOf:
+        - required: [catalogItemId]
+        - required: [name]
       properties:
+        catalogItemId:
+          type: string
+          format: uuid
+          nullable: true
+          description: Catalog identity used for AI ingredient mapping; catalog name and strength override client values.
         name:
           type: string
           example: "Parol"
@@ -1516,6 +1581,10 @@ components:
         id:
           type: string
           format: uuid
+        catalogItemId:
+          type: string
+          format: uuid
+          nullable: true
         name:
           type: string
         strength:
@@ -1532,6 +1601,130 @@ components:
           type: string
           format: date-time
           nullable: true
+
+    MedicationRiskAnalysisRequest:
+      type: object
+      required:
+        - medicationIds
+      properties:
+        medicationIds:
+          type: array
+          minItems: 2
+          maxItems: 10
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+        topK:
+          type: integer
+          minimum: 1
+          maximum: 20
+          default: 5
+
+    MedicationRiskParticipant:
+      type: object
+      required: [medicationId, name, ingredient, drugBankId]
+      properties:
+        medicationId:
+          type: string
+          format: uuid
+        name:
+          type: string
+        ingredient:
+          type: string
+        drugBankId:
+          type: string
+
+    PolypharmacyOrganRisk:
+      type: object
+      required: [organ, probability]
+      properties:
+        organ:
+          type: string
+        probability:
+          type: number
+          format: double
+
+    PolypharmacySideEffectRisk:
+      type: object
+      required: [label, cui, probability]
+      properties:
+        label:
+          type: string
+        cui:
+          type: string
+        probability:
+          type: number
+          format: double
+
+    MedicationRiskPair:
+      type: object
+      required: [medicationA, medicationB, model, mode, confidence, warnings, organRisks, sideEffectRisks, inferenceMs]
+      properties:
+        medicationA:
+          $ref: '#/components/schemas/MedicationRiskParticipant'
+        medicationB:
+          $ref: '#/components/schemas/MedicationRiskParticipant'
+        model:
+          type: string
+        mode:
+          type: string
+          enum: [fused, baseline]
+        confidence:
+          type: string
+          enum: [standard, reduced]
+        warnings:
+          type: array
+          items:
+            type: string
+        organRisks:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolypharmacyOrganRisk'
+        sideEffectRisks:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolypharmacySideEffectRisk'
+        inferenceMs:
+          type: number
+          format: double
+
+    MedicationRiskAnalysisResponse:
+      type: object
+      required: [pairs, generatedAt, disclaimer]
+      properties:
+        pairs:
+          type: array
+          items:
+            $ref: '#/components/schemas/MedicationRiskPair'
+        generatedAt:
+          type: string
+          format: date-time
+        disclaimer:
+          type: string
+
+    UnsupportedMedicationsResponse:
+      type: object
+      required: [code, unsupported]
+      properties:
+        code:
+          type: string
+          enum: [unsupported_medication]
+        unsupported:
+          type: array
+          items:
+            type: object
+            required: [medicationId, name]
+            properties:
+              medicationId:
+                type: string
+                format: uuid
+              name:
+                type: string
+              ingredient:
+                type: string
+              drugBankId:
+                type: string
 
     TakenResponse:
       type: object

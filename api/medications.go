@@ -14,13 +14,22 @@ import (
 
 // MedicationCatalogItem represents an item in the medication catalog.
 type MedicationCatalogItem struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Strength string `json:"strength"`
+	ID          string                 `json:"id"`
+	Name        string                 `json:"name"`
+	Strength    string                 `json:"strength"`
+	Ingredients []MedicationIngredient `json:"ingredients"`
+}
+
+// MedicationIngredient identifies an active ingredient understood by the AI model.
+type MedicationIngredient struct {
+	Name        string `json:"name"`
+	DrugBankID  string `json:"drugBankId"`
+	AISupported bool   `json:"aiSupported"`
 }
 
 // CreateMedicationRequest represents the payload for creating a new medication plan.
 type CreateMedicationRequest struct {
+	CatalogItemID          *string `json:"catalogItemId"`
 	Name                   string  `json:"name"`
 	Strength               string  `json:"strength"`
 	Instructions           string  `json:"instructions"`
@@ -31,6 +40,7 @@ type CreateMedicationRequest struct {
 // MedicationResponse represents the response details of a patient's medication plan.
 type MedicationResponse struct {
 	ID               string     `json:"id"`
+	CatalogItemID    *string    `json:"catalogItemId"`
 	Name             string     `json:"name"`
 	Strength         string     `json:"strength"`
 	Instructions     string     `json:"instructions"`
@@ -56,13 +66,18 @@ func (a *API) GetMedicationCatalogHandler(w http.ResponseWriter, r *http.Request
 	var rows *sql.Rows
 	var err error
 
+	const catalogQuery = `
+		SELECT c.id, c.name, c.strength,
+		       i.ingredient_name, i.drugbank_id, i.ai_supported
+		FROM medication_catalog c
+		LEFT JOIN medication_catalog_ingredients i ON i.catalog_item_id = c.id`
 	if searchQuery != "" {
 		rows, err = a.db.QueryContext(r.Context(),
-			"SELECT id, name, strength FROM medication_catalog WHERE name ILIKE $1 ORDER BY name ASC",
+			catalogQuery+" WHERE c.name ILIKE $1 ORDER BY c.name ASC, i.ingredient_name ASC",
 			"%"+searchQuery+"%")
 	} else {
 		rows, err = a.db.QueryContext(r.Context(),
-			"SELECT id, name, strength FROM medication_catalog ORDER BY name ASC")
+			catalogQuery+" ORDER BY c.name ASC, i.ingredient_name ASC")
 	}
 
 	if err != nil {
@@ -72,13 +87,31 @@ func (a *API) GetMedicationCatalogHandler(w http.ResponseWriter, r *http.Request
 	defer rows.Close()
 
 	catalog := make([]MedicationCatalogItem, 0)
+	itemsByID := make(map[string]int)
 	for rows.Next() {
 		var item MedicationCatalogItem
-		if err := rows.Scan(&item.ID, &item.Name, &item.Strength); err != nil {
+		var ingredientName, drugBankID sql.NullString
+		var aiSupported sql.NullBool
+		if err := rows.Scan(&item.ID, &item.Name, &item.Strength, &ingredientName, &drugBankID, &aiSupported); err != nil {
 			http.Error(w, "failed to scan catalog item: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		catalog = append(catalog, item)
+		index, exists := itemsByID[item.ID]
+		if !exists {
+			item.Ingredients = make([]MedicationIngredient, 0)
+			catalog = append(catalog, item)
+			index = len(catalog) - 1
+			itemsByID[item.ID] = index
+		}
+		if ingredientName.Valid && drugBankID.Valid {
+			catalog[index].Ingredients = append(catalog[index].Ingredients, MedicationIngredient{
+				Name: ingredientName.String, DrugBankID: drugBankID.String, AISupported: aiSupported.Bool,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		http.Error(w, "failed to read medication catalog: "+err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -101,7 +134,7 @@ func (a *API) PostMedicationHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 1. Validations
-	if req.Name == "" {
+	if req.Name == "" && (req.CatalogItemID == nil || *req.CatalogItemID == "") {
 		http.Error(w, "medication name is required", http.StatusBadRequest)
 		return
 	}
@@ -122,6 +155,26 @@ func (a *API) PostMedicationHandler(w http.ResponseWriter, r *http.Request) {
 	} else if err != nil {
 		http.Error(w, "database query error: "+err.Error(), http.StatusInternalServerError)
 		return
+	}
+
+	var catalogID sql.NullString
+	if req.CatalogItemID != nil && *req.CatalogItemID != "" {
+		if _, err := uuid.Parse(*req.CatalogItemID); err != nil {
+			http.Error(w, "invalid catalogItemId", http.StatusBadRequest)
+			return
+		}
+		err := a.db.QueryRowContext(r.Context(),
+			"SELECT name, strength FROM medication_catalog WHERE id = $1",
+			*req.CatalogItemID).Scan(&req.Name, &req.Strength)
+		if errors.Is(err, sql.ErrNoRows) {
+			http.Error(w, "medication catalog item not found", http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(w, "database query error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		catalogID = sql.NullString{String: *req.CatalogItemID, Valid: true}
 	}
 
 	var docID sql.NullString
@@ -164,9 +217,9 @@ func (a *API) PostMedicationHandler(w http.ResponseWriter, r *http.Request) {
 	medID := uuid.New().String()
 
 	_, err = a.db.ExecContext(r.Context(), `
-		INSERT INTO medications (id, patient_id, prescription_document_id, name, strength, instructions, schedule, active)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		medID, userID, docID, req.Name, req.Strength, req.Instructions, scheduleJSON, true)
+		INSERT INTO medications (id, patient_id, prescription_document_id, catalog_item_id, name, strength, instructions, schedule, active)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		medID, userID, docID, catalogID, req.Name, req.Strength, req.Instructions, scheduleJSON, true)
 
 	if err != nil {
 		http.Error(w, "failed to create medication plan: "+err.Error(), http.StatusInternalServerError)
@@ -177,6 +230,7 @@ func (a *API) PostMedicationHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(MedicationResponse{
 		ID:             medID,
+		CatalogItemID:  req.CatalogItemID,
 		Name:           req.Name,
 		Strength:       req.Strength,
 		Instructions:   req.Instructions,
@@ -193,7 +247,7 @@ func (a *API) GetMedicationsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rows, err := a.db.QueryContext(r.Context(), `
-		SELECT m.id, m.name, m.strength, m.instructions, m.schedule,
+		SELECT m.id, m.catalog_item_id, m.name, m.strength, m.instructions, m.schedule,
 		       (SELECT max(taken_at) FROM medication_events WHERE medication_id = m.id AND status = 'taken') as last_taken_at
 		FROM medications m
 		WHERE m.patient_id = $1 AND m.active = true
@@ -209,13 +263,17 @@ func (a *API) GetMedicationsHandler(w http.ResponseWriter, r *http.Request) {
 	medications := make([]MedicationResponse, 0)
 	for rows.Next() {
 		var med MedicationResponse
+		var catalogItemID sql.NullString
 		var scheduleBytes []byte
 		var lastTaken sql.NullTime
 
-		err := rows.Scan(&med.ID, &med.Name, &med.Strength, &med.Instructions, &scheduleBytes, &lastTaken)
+		err := rows.Scan(&med.ID, &catalogItemID, &med.Name, &med.Strength, &med.Instructions, &scheduleBytes, &lastTaken)
 		if err != nil {
 			http.Error(w, "failed to scan medication row: "+err.Error(), http.StatusInternalServerError)
 			return
+		}
+		if catalogItemID.Valid {
+			med.CatalogItemID = &catalogItemID.String
 		}
 
 		// Parse schedule JSONB

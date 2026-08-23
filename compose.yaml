@@ -21,6 +21,8 @@ services:
       S3_BUCKET: guardianband-files
       S3_USE_SSL: "false"
       JWT_SECRET: ${JWT_SECRET:-ChangeMeJWTSecret123}
+      AI_BASE_URL: http://polypharmacy-ai:8000
+      AI_REQUEST_TIMEOUT: 5s
     depends_on:
       opengauss:
         condition: service_healthy
@@ -28,6 +30,34 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+      polypharmacy-ai:
+        condition: service_started
+
+  polypharmacy-ai:
+    build:
+      context: ../ai
+      dockerfile: Dockerfile
+    expose:
+      - "8000"
+    volumes:
+      - ../ai/model-release:/models:ro
+    environment:
+      POLYPHARMACY_RUNTIME: "onnx"
+      POLYPHARMACY_DEVICE: "cpu"
+      POLYPHARMACY_CPU_THREADS: "1"
+      POLYPHARMACY_MAX_TOP_K: "20"
+      POLYPHARMACY_EXPERIMENT_PATH: /models/teacher.yaml
+      POLYPHARMACY_MANIFEST_PATH: /models/benchmark/manifest.json
+      POLYPHARMACY_CHECKPOINT_PATH: /models/checkpoint_best.pt
+      POLYPHARMACY_SELECTION_PATH: /models/teacher_validation_selection.json
+      POLYPHARMACY_ONNX_FUSED_PATH: /models/onnx/teacher_fused.onnx
+      POLYPHARMACY_ONNX_BASELINE_PATH: /models/onnx/teacher_baseline.onnx
+      POLYPHARMACY_ONNX_RELEASE_PATH: /models/onnx/onnx_release.json
+      POLYPHARMACY_CHECKPOINT_SHA256: 1288c4bb7e601c42b615ccc99f9ced4afa86f6416db0db37276817b7b1a5e39a
+      POLYPHARMACY_SELECTION_SHA256: 71d0893f573e5266caaada0836d13ab73c6fcabd64a53777b4dad4497bf8d61a
+      POLYPHARMACY_FEATURE_SHA256: e0c316825f665da98371185f08cdac2a742ebd5f257bf6465f7c4fc93eaee111
+      POLYPHARMACY_HIERARCHY_SHA256: 61632bfffb8230624307534148a548e784bc79704d63b0a3b6bfe7d8696138f0
+    restart: unless-stopped
 
   opengauss:
     image: opengauss/opengauss-server:latest

@@ -48,6 +48,7 @@ type API struct {
 	redis                *redis.Client
 	notificationService  NotificationService
 	notificationProvider NotificationProvider
+	polypharmacyClient   PolypharmacyClient
 }
 
 // New creates an API server with the application's handlers.
@@ -78,12 +79,29 @@ func New(ctx context.Context) (*API, error) {
 		println("MinIO Storage warning:", err.Error())
 	}
 
+	var polypharmacyClient PolypharmacyClient
+	if baseURL := getenv("AI_BASE_URL", ""); baseURL != "" {
+		timeout, err := time.ParseDuration(getenv("AI_REQUEST_TIMEOUT", "5s"))
+		if err != nil {
+			redisClient.Close()
+			db.Close()
+			return nil, fmt.Errorf("parse AI_REQUEST_TIMEOUT: %w", err)
+		}
+		polypharmacyClient, err = NewPolypharmacyHTTPClient(baseURL, timeout)
+		if err != nil {
+			redisClient.Close()
+			db.Close()
+			return nil, fmt.Errorf("configure polypharmacy client: %w", err)
+		}
+	}
+
 	apiServer := &API{
 		storage:              storage,
 		db:                   db,
 		redis:                redisClient,
 		notificationService:  &ConsoleNotificationService{},
 		notificationProvider: NewNotificationProvider(),
+		polypharmacyClient:   polypharmacyClient,
 	}
 
 	// Start background telemetry archiver worker
@@ -154,6 +172,7 @@ func (a *API) Router() http.Handler {
 			r.Post("/medications", a.PostMedicationHandler)
 			r.Delete("/medications/{medicationId}", a.DeleteMedicationHandler)
 			r.Post("/medications/{medicationId}/taken", a.PostMedicationTakenHandler)
+			r.Post("/medication-risk-analyses", a.PostMedicationRiskAnalysisHandler)
 			r.Post("/sos/incidents", a.PostSOSIncidentHandler)
 			r.Post("/sos/incidents/{incidentId}/all-clear", a.PostSOSAllClearHandler)
 			r.Post("/vitals", a.VitalsPostHandler)

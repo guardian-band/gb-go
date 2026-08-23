@@ -20,6 +20,7 @@ func TestDatabaseSchemaContainsDesignedTables(t *testing.T) {
 		"sos_incidents",
 		"emergency_access_sessions",
 		"medication_catalog",
+		"medication_catalog_ingredients",
 		"notification_endpoints",
 		"notification_outbox",
 		"emergency_access_audit_logs",
@@ -38,5 +39,11 @@ func TestDatabaseSchemaContainsDesignedTables(t *testing.T) {
 
 	if !strings.Contains(databaseSchema, "health_state_value_matches_type") {
 		t.Error("database schema does not constrain health-state values by type")
+	}
+	if !strings.Contains(databaseSchema, "catalog_item_id UUID REFERENCES medication_catalog(id)") {
+		t.Error("medications do not retain their catalog identity")
+	}
+	if !strings.Contains(databaseSchema, "drugbank_id VARCHAR(16) NOT NULL") {
+		t.Error("catalog ingredients do not retain their DrugBank identity")
 	}
 }

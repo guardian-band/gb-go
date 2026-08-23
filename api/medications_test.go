@@ -26,10 +26,10 @@ func TestGetMedicationCatalog(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/medication-catalog?search=Parol", nil)
 	rec := httptest.NewRecorder()
 
-	mock.ExpectQuery("SELECT id, name, strength FROM medication_catalog WHERE name ILIKE \\$1").
+	mock.ExpectQuery("SELECT c.id, c.name, c.strength").
 		WithArgs("%Parol%").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "strength"}).
-			AddRow("med-1", "Parol", "500mg"))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "strength", "ingredient_name", "drugbank_id", "ai_supported"}).
+			AddRow("med-1", "Parol", "500mg", "acetaminophen", "DB00316", true))
 
 	a.GetMedicationCatalogHandler(rec, req)
 
@@ -45,7 +45,58 @@ func TestGetMedicationCatalog(t *testing.T) {
 	if len(resp) != 1 || resp[0].Name != "Parol" {
 		t.Errorf("unexpected catalog items: %+v", resp)
 	}
+	if len(resp[0].Ingredients) != 1 || resp[0].Ingredients[0].DrugBankID != "DB00316" || !resp[0].Ingredients[0].AISupported {
+		t.Errorf("unexpected catalog ingredients: %+v", resp[0].Ingredients)
+	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Errorf("sqlmock expectations were not met: %v", err)
+	}
+}
+
+func TestPostMedicationUsesCatalogIdentityAndAuthoritativeDetails(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("failed to create sqlmock: %v", err)
+	}
+	defer db.Close()
+
+	a := &API{db: db}
+	userID := "user-uuid-123"
+	catalogID := "111a1234-abcd-ef01-2345-6789abcdef01"
+	reqBody := CreateMedicationRequest{
+		CatalogItemID:  &catalogID,
+		Name:           "untrusted client name",
+		Strength:       "untrusted strength",
+		FrequencyHours: 12,
+	}
+	bodyBytes, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/medications", bytes.NewReader(bodyBytes))
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, userID))
+	rec := httptest.NewRecorder()
+
+	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1").
+		WithArgs(userID).
+		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
+	mock.ExpectQuery("^SELECT name, strength FROM medication_catalog WHERE id = \\$1$").
+		WithArgs(catalogID).
+		WillReturnRows(sqlmock.NewRows([]string{"name", "strength"}).AddRow("Parol", "500mg"))
+	mock.ExpectExec("INSERT INTO medications").
+		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), catalogID, "Parol", "500mg", reqBody.Instructions, sqlmock.AnyArg(), true).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+
+	a.PostMedicationHandler(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("expected status 201, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp MedicationResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.CatalogItemID == nil || *resp.CatalogItemID != catalogID || resp.Name != "Parol" || resp.Strength != "500mg" {
+		t.Errorf("unexpected medication response: %+v", resp)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations were not met: %v", err)
 	}
@@ -77,7 +128,7 @@ func TestPostMedicationSuccess(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
 
 	mock.ExpectExec("INSERT INTO medications").
-		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
+		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	a.PostMedicationHandler(rec, req)
@@ -117,7 +168,7 @@ func TestPostMedicationSuccess8Hours(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(1))
 
 	mock.ExpectExec("INSERT INTO medications").
-		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
+		WithArgs(sqlmock.AnyArg(), userID, sqlmock.AnyArg(), sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	a.PostMedicationHandler(rec, req)
@@ -198,7 +249,7 @@ func TestPostMedicationWithPrescriptionSuccess(t *testing.T) {
 			AddRow(userID, "prescription"))
 
 	mock.ExpectExec("INSERT INTO medications").
-		WithArgs(sqlmock.AnyArg(), userID, prescriptionDocID, reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
+		WithArgs(sqlmock.AnyArg(), userID, prescriptionDocID, sqlmock.AnyArg(), reqBody.Name, reqBody.Strength, reqBody.Instructions, sqlmock.AnyArg(), true).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 
 	a.PostMedicationHandler(rec, req)
@@ -275,11 +326,11 @@ func TestGetMedicationsList(t *testing.T) {
 	now := time.Now()
 	lastTaken := now.Add(-6 * time.Hour) // 6 hours ago
 
-	mock.ExpectQuery("SELECT m.id, m.name, m.strength, m.instructions, m.schedule").
+	mock.ExpectQuery("SELECT m.id, m.catalog_item_id, m.name, m.strength, m.instructions, m.schedule").
 		WithArgs(userID).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "name", "strength", "instructions", "schedule", "last_taken_at"}).
-			AddRow("med-1", "Parol", "500mg", "Günde 2 kez", []byte(`{"frequency_hours": 12}`), lastTaken).
-			AddRow("med-2", "Aspirin", "100mg", "Günde 1 kez", []byte(`{"frequency_hours": 24}`), sql.NullTime{}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "catalog_item_id", "name", "strength", "instructions", "schedule", "last_taken_at"}).
+			AddRow("med-1", "111a1234-abcd-ef01-2345-6789abcdef01", "Parol", "500mg", "Günde 2 kez", []byte(`{"frequency_hours": 12}`), lastTaken).
+			AddRow("med-2", nil, "Aspirin", "100mg", "Günde 1 kez", []byte(`{"frequency_hours": 24}`), sql.NullTime{}))
 
 	a.GetMedicationsHandler(rec, req)
 
@@ -294,6 +345,9 @@ func TestGetMedicationsList(t *testing.T) {
 
 	if len(resp) != 2 {
 		t.Errorf("expected 2 plans, got %d", len(resp))
+	}
+	if resp[0].CatalogItemID == nil || *resp[0].CatalogItemID != "111a1234-abcd-ef01-2345-6789abcdef01" || resp[1].CatalogItemID != nil {
+		t.Errorf("unexpected catalog identities: %+v", resp)
 	}
 
 	// Dynamic calculation verification

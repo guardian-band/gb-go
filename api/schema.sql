@@ -108,10 +108,27 @@ CREATE TABLE IF NOT EXISTS documents (
         CHECK (kind IN ('prescription', 'report'))
 );
 
+CREATE TABLE IF NOT EXISTS medication_catalog (
+    id UUID PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    strength VARCHAR(100) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS medication_catalog_ingredients (
+    id UUID PRIMARY KEY,
+    catalog_item_id UUID NOT NULL REFERENCES medication_catalog(id) ON DELETE CASCADE,
+    ingredient_name VARCHAR(200) NOT NULL,
+    drugbank_id VARCHAR(16) NOT NULL,
+    ai_supported BOOLEAN NOT NULL DEFAULT FALSE,
+    CONSTRAINT medication_catalog_ingredients_unique_drug
+        UNIQUE (catalog_item_id, drugbank_id)
+);
+
 CREATE TABLE IF NOT EXISTS medications (
     id UUID PRIMARY KEY,
     patient_id UUID NOT NULL REFERENCES patient_profiles(user_id) ON DELETE CASCADE,
     prescription_document_id UUID REFERENCES documents(id) ON DELETE SET NULL,
+    catalog_item_id UUID REFERENCES medication_catalog(id) ON DELETE SET NULL,
     name VARCHAR(200) NOT NULL,
     strength VARCHAR(100),
     instructions TEXT,
@@ -212,12 +229,6 @@ CREATE TABLE IF NOT EXISTS emergency_access_sessions (
         CHECK (expires_at > created_at),
     CONSTRAINT emergency_access_sessions_revocation_valid
         CHECK (revoked_at IS NULL OR revoked_at >= created_at)
-);
-
-CREATE TABLE IF NOT EXISTS medication_catalog (
-    id UUID PRIMARY KEY,
-    name VARCHAR(200) NOT NULL,
-    strength VARCHAR(100) NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS notification_endpoints (
