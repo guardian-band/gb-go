@@ -34,7 +34,8 @@ type AuthRequest struct {
 }
 
 type AuthResponse struct {
-	Token string `json:"token"`
+	Token  string `json:"token"`
+	UserID string `json:"userId"`
 }
 
 type RegisterRequest struct {
@@ -226,7 +227,7 @@ func (a *API) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(AuthResponse{Token: token})
+	json.NewEncoder(w).Encode(AuthResponse{Token: token, UserID: userID})
 }
 
 func HashPassword(password string) (string, error) {

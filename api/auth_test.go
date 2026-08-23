@@ -231,6 +231,10 @@ func TestLoginSuccess(t *testing.T) {
 		t.Error("expected JWT token in response, got empty string")
 	}
 
+	if resp.UserID != userUUID {
+		t.Errorf("expected UserID %s in response, got %s", userUUID, resp.UserID)
+	}
+
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Errorf("sqlmock expectations were not met: %v", err)
 	}

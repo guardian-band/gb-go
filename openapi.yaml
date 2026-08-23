@@ -984,10 +984,17 @@ components:
 
     AuthResponse:
       type: object
+      required:
+        - token
+        - userId
       properties:
         token:
           type: string
           example: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+        userId:
+          type: string
+          format: uuid
+          example: 9660ff3a-a370-4f46-9eab-daba77da0f96
 
     UploadResponse:
       type: object
