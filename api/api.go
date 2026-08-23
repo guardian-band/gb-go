@@ -83,7 +83,7 @@ func New(ctx context.Context) (*API, error) {
 		db:                   db,
 		redis:                redisClient,
 		notificationService:  &ConsoleNotificationService{},
-		notificationProvider: &ConsoleNotificationProvider{},
+		notificationProvider: NewNotificationProvider(),
 	}
 
 	// Start background telemetry archiver worker
