@@ -15,6 +15,8 @@ import (
 )
 
 type EmergencyMedicalCard struct {
+	DisplayName   string                  `json:"displayName"`
+	BirthDate     string                  `json:"birthDate"`
 	BloodType     string                  `json:"bloodType"`
 	CriticalFacts json.RawMessage         `json:"criticalFacts"`
 	Medications   []EmergencyMedication   `json:"medications"`
@@ -245,15 +247,18 @@ func (a *API) GetEmergencyAccessMedicalCardHandler(w http.ResponseWriter, r *htt
 	// Access allowed
 	logAudit(true, "")
 
-	// Query critical facts & blood type
+	// Query patient identity, critical facts & blood type
+	var displayName sql.NullString
+	var birthDate sql.NullTime
 	var bloodType sql.NullString
 	var criticalFactsRaw []byte
 
 	err = a.db.QueryRowContext(r.Context(), `
-		SELECT blood_type, critical_facts
-		FROM patient_profiles
-		WHERE user_id = $1
-	`, patientID).Scan(&bloodType, &criticalFactsRaw)
+		SELECT COALESCE(u.display_name, ''), pp.birth_date, pp.blood_type, pp.critical_facts
+		FROM patient_profiles pp
+		JOIN users u ON u.id = pp.user_id
+		WHERE pp.user_id = $1
+	`, patientID).Scan(&displayName, &birthDate, &bloodType, &criticalFactsRaw)
 	if err != nil {
 		http.Error(w, "failed to query patient profile info: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -294,7 +299,15 @@ func (a *API) GetEmergencyAccessMedicalCardHandler(w http.ResponseWriter, r *htt
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
+
+	var birthDateStr string
+	if birthDate.Valid {
+		birthDateStr = birthDate.Time.Format("2006-01-02")
+	}
+
 	json.NewEncoder(w).Encode(EmergencyMedicalCard{
+		DisplayName:   displayName.String,
+		BirthDate:     birthDateStr,
 		BloodType:     bloodType.String,
 		CriticalFacts: json.RawMessage(criticalFactsRaw),
 		Medications:   medications,

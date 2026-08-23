@@ -1525,10 +1525,19 @@ components:
     EmergencyMedicalCard:
       type: object
       required:
+        - displayName
+        - birthDate
         - bloodType
         - criticalFacts
         - medications
       properties:
+        displayName:
+          type: string
+          example: "Ada"
+        birthDate:
+          type: string
+          format: date
+          example: "1995-04-12"
         bloodType:
           type: string
           example: "A+"

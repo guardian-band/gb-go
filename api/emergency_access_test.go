@@ -204,11 +204,11 @@ func TestGetEmergencyAccessMedicalCardSuccess(t *testing.T) {
 		WillReturnRows(sqlmock.NewRows([]string{"patient_id", "responder_id", "expires_at", "revoked_at"}).
 			AddRow(patientID, responderID, expiresAt, nil))
 
-	// 2. Patient profile lookup
-	mock.ExpectQuery("^SELECT blood_type, critical_facts FROM patient_profiles WHERE user_id = \\$1").
+	// 2. Patient profile lookup (now includes display_name and birth_date)
+	mock.ExpectQuery("SELECT COALESCE\\(u.display_name, ''\\), pp.birth_date, pp.blood_type, pp.critical_facts FROM patient_profiles pp").
 		WithArgs(patientID).
-		WillReturnRows(sqlmock.NewRows([]string{"blood_type", "critical_facts"}).
-			AddRow("AB-", `{"allergies":["Nuts"]}`))
+		WillReturnRows(sqlmock.NewRows([]string{"display_name", "birth_date", "blood_type", "critical_facts"}).
+			AddRow("Ahmet Veli", time.Date(1990, 5, 20, 0, 0, 0, 0, time.UTC), "AB-", `{"allergies":["Nuts"]}`))
 
 	// 3. Active medications lookup
 	mock.ExpectQuery("^SELECT name, COALESCE\\(strength, ''\\), COALESCE\\(instructions, ''\\) FROM medications").
@@ -225,6 +225,14 @@ func TestGetEmergencyAccessMedicalCardSuccess(t *testing.T) {
 	var resp EmergencyMedicalCard
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if resp.DisplayName != "Ahmet Veli" {
+		t.Errorf("expected displayName 'Ahmet Veli', got %s", resp.DisplayName)
+	}
+
+	if resp.BirthDate != "1990-05-20" {
+		t.Errorf("expected birthDate '1990-05-20', got %s", resp.BirthDate)
 	}
 
 	if resp.BloodType != "AB-" {
