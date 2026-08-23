@@ -180,6 +180,7 @@ func (a *API) Router() http.Handler {
 			r.Get("/emergency-contacts", a.GetEmergencyContactsHandler)
 			r.Post("/emergency-contacts", a.PostEmergencyContactHandler)
 			r.Patch("/emergency-contacts/{contactId}", a.PatchEmergencyContactHandler)
+			r.Put("/emergency-contacts/{contactId}", a.PutEmergencyContactHandler)
 			r.Delete("/emergency-contacts/{contactId}", a.DeleteEmergencyContactHandler)
 			r.Get("/protected", func(w http.ResponseWriter, r *http.Request) {
 				w.Write([]byte("Access granted to protected endpoint!"))
