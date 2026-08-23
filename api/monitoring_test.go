@@ -62,7 +62,7 @@ func TestMonitoringRosterRequiresRelationship(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "member-1"))
 	mock.ExpectQuery("^SELECT pr.id, pr.patient_id").
 		WithArgs("member-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "display_name", "relationship", "blood_type", "birth_date"}))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "display_name", "relationship", "blood_type", "birth_date", "phone"}))
 
 	rec := httptest.NewRecorder()
 	a.GetMonitoringPatientsHandler(rec, req)
@@ -88,8 +88,8 @@ func TestMonitoringRosterReturnsSafePopulatedPatient(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "member-1"))
 	birthDate := time.Date(1995, 4, 12, 0, 0, 0, 0, time.UTC)
 	mock.ExpectQuery("^SELECT pr.id, pr.patient_id").WithArgs("member-1").
-		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "display_name", "relationship", "blood_type", "birth_date"}).
-			AddRow("rel-1", "patient-1", "Ada Patient", "daughter", "A+", birthDate))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "display_name", "relationship", "blood_type", "birth_date", "phone"}).
+			AddRow("rel-1", "patient-1", "Ada Patient", "daughter", "A+", birthDate, ""))
 	rec := httptest.NewRecorder()
 	a.GetMonitoringPatientsHandler(rec, req)
 	if rec.Code != http.StatusOK {
@@ -299,7 +299,7 @@ func TestCreateMonitoringInvitationReturnsOpaqueToken(t *testing.T) {
 	mock.ExpectQuery("^SELECT 1 FROM patient_profiles WHERE user_id = \\$1$").
 		WithArgs("patient-1").WillReturnRows(sqlmock.NewRows([]string{"?column?"}).AddRow(1))
 	mock.ExpectExec("^INSERT INTO patient_link_invitations").
-		WithArgs(sqlmock.AnyArg(), "patient-1", sqlmock.AnyArg(), "daughter", "family", true, false, sqlmock.AnyArg()).
+		WithArgs(sqlmock.AnyArg(), "patient-1", sqlmock.AnyArg(), "daughter", "family", true, false, false, sqlmock.AnyArg()).
 		WillReturnResult(sqlmock.NewResult(1, 1))
 	rec := httptest.NewRecorder()
 	a.CreateMonitoringInvitationHandler(rec, req)
@@ -357,13 +357,13 @@ func TestRedeemMonitoringInvitationAtomicallyCreatesRelationship(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("^SELECT id, patient_id, relationship, kind, can_monitor,").
 		WithArgs(hashInvitationToken(token)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "relationship", "kind", "can_monitor", "is_emergency_contact", "expires_at"}).
-			AddRow("invite-1", "patient-1", "daughter", "family", true, false, time.Now().Add(time.Hour)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "relationship", "kind", "can_monitor", "share_phone_number", "is_emergency_contact", "expires_at"}).
+			AddRow("invite-1", "patient-1", "daughter", "family", true, false, false, time.Now().Add(time.Hour)))
 	mock.ExpectQuery("^UPDATE patient_relationships").
-		WithArgs("patient-1", "member-1", "daughter", "family", true, false).
+		WithArgs("patient-1", "member-1", "daughter", "family", true, false, false).
 		WillReturnError(sql.ErrNoRows)
 	mock.ExpectQuery("^INSERT INTO patient_relationships").
-		WithArgs(sqlmock.AnyArg(), "patient-1", "member-1", "daughter", "family", true, false).
+		WithArgs(sqlmock.AnyArg(), "patient-1", "member-1", "daughter", "family", true, false, false).
 		WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow("relationship-1"))
 	mock.ExpectExec("^UPDATE patient_link_invitations").
 		WithArgs("invite-1").WillReturnResult(sqlmock.NewResult(1, 1))
@@ -399,8 +399,8 @@ func TestRedeemMonitoringInvitationRejectsSelfLinkAndRollsBack(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectQuery("^SELECT id, patient_id, relationship, kind, can_monitor,").
 		WithArgs(hashInvitationToken(token)).
-		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "relationship", "kind", "can_monitor", "is_emergency_contact", "expires_at"}).
-			AddRow("invite-1", "patient-1", "daughter", "family", true, false, time.Now().Add(time.Hour)))
+		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "relationship", "kind", "can_monitor", "share_phone_number", "is_emergency_contact", "expires_at"}).
+			AddRow("invite-1", "patient-1", "daughter", "family", true, false, false, time.Now().Add(time.Hour)))
 	mock.ExpectRollback()
 	rec := httptest.NewRecorder()
 	a.RedeemMonitoringInvitationHandler(rec, req)
@@ -491,6 +491,36 @@ func TestPostEmergencyContactProfileNotFound(t *testing.T) {
 		t.Errorf("expected 'patient profile not found', got %q", resp["message"])
 	}
 
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMonitoringRosterReturnsPhoneIfShared(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	a := &API{db: db}
+	req := httptest.NewRequest(http.MethodGet, "/api/monitoring/patients", nil)
+	req = req.WithContext(context.WithValue(req.Context(), UserContextKey, "member-1"))
+	birthDate := time.Date(1995, 4, 12, 0, 0, 0, 0, time.UTC)
+	mock.ExpectQuery("^SELECT pr.id, pr.patient_id").WithArgs("member-1").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "patient_id", "display_name", "relationship", "blood_type", "birth_date", "phone"}).
+			AddRow("rel-1", "patient-1", "Ada Patient", "daughter", "A+", birthDate, "+905557654321"))
+	rec := httptest.NewRecorder()
+	a.GetMonitoringPatientsHandler(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var got []MonitoringPatient
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].PatientID != "patient-1" || got[0].Phone != "+905557654321" {
+		t.Fatalf("unexpected roster phone: %+v", got)
+	}
 	if err := mock.ExpectationsWereMet(); err != nil {
 		t.Fatal(err)
 	}
